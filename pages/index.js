@@ -106,11 +106,12 @@ export default function Home() {
         )}
 
         {loading && issues.length === 0 && !error ? (
-          <div className="text-center text-sm text-slate-400 py-20">
-            Loading open CREATE tasks from Jira…
+          <div className="animate-fade-in text-center text-sm text-slate-400 py-20">
+            <div className="inline-block h-6 w-6 rounded-full border-2 border-slate-200 border-t-[#7b61ff] animate-spin mb-3" />
+            <p>Loading open CREATE tasks from Jira…</p>
           </div>
         ) : (
-          <>
+          <div key={activeTab} className="animate-fade-slide-in">
             {activeTab === "overview" && (
               <OverviewTab issues={issues} onDrill={goToMaster} />
             )}
@@ -133,7 +134,7 @@ export default function Home() {
             )}
             {activeTab === "client" && <ClientTab issues={issues} />}
             {activeTab === "product" && <ProductTab issues={issues} />}
-          </>
+          </div>
         )}
       </Layout>
     </>

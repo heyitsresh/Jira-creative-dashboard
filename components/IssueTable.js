@@ -65,7 +65,8 @@ export default function IssueTable({
   defaultSort = { key: "updated", dir: "desc" },
   emptyMessage = "No open tasks match the current filters.",
   notesByKey = null, // { [issueKey]: Note[] } — pass to enable the Notes column
-  onAddNote = null, // (issueKey, { author, body }) => Promise
+  onAddNote = null, // (issueKey, { body }) => Promise
+  onToggleResolve = null, // (noteId, resolved) => Promise
 }) {
   const [sort, setSort] = useState(defaultSort);
   const [expanded, setExpanded] = useState(new Set());
@@ -156,6 +157,7 @@ export default function IssueTable({
                   notesEnabled={notesEnabled}
                   notes={notes}
                   onAddNote={onAddNote}
+                  onToggleResolve={onToggleResolve}
                   isOpen={isOpen}
                   onToggle={() => canExpand && toggleExpanded(issue.key)}
                 />
@@ -176,16 +178,19 @@ function FragmentRow({
   notesEnabled,
   notes,
   onAddNote,
+  onToggleResolve,
   isOpen,
   onToggle,
 }) {
   const total = issue.linkedItems?.length || 0;
   const done = issue.linkedItems?.filter((l) => l.statusCategory === "Done").length || 0;
+  const noteTotal = notes.length;
+  const noteResolved = notes.filter((n) => n.resolved).length;
   const canExpand = hasLinks || notesEnabled;
 
   return (
     <Fragment>
-      <tr className="border-b border-slate-100 last:border-0 hover:bg-slate-50">
+      <tr className="border-b border-slate-100 last:border-0 hover:bg-slate-50 transition-colors">
         {columns.map((col) => {
           const sticky = stickyCellProps(col.key);
           return (
@@ -197,7 +202,7 @@ function FragmentRow({
               {col.key === "linked" &&
                 renderLinkedCell({ total, done, hasLinks, isOpen, onToggle })}
               {col.key === "notes" &&
-                renderNotesCell({ count: notes.length, isOpen, onToggle })}
+                renderNotesCell({ total: noteTotal, resolved: noteResolved, isOpen, onToggle })}
               {col.key !== "linked" && col.key !== "notes" &&
                 renderCell(col.key, issue, bucket)}
             </td>
@@ -207,7 +212,7 @@ function FragmentRow({
       {canExpand && isOpen && (
         <tr className="bg-slate-50/70 border-b border-slate-100">
           <td colSpan={columns.length} className="px-3 py-3">
-            <div className="flex flex-col lg:flex-row gap-4">
+            <div className="animate-fade-slide-in flex flex-col lg:flex-row gap-4">
               {hasLinks && (
                 <div className="flex-1 min-w-0 pl-2 border-l-2 border-slate-200 flex flex-col gap-1.5">
                   <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide mb-0.5">
@@ -239,7 +244,12 @@ function FragmentRow({
               )}
               {notesEnabled && (
                 <div className="flex-1 min-w-0 pl-2 border-l-2 border-slate-200">
-                  <NotesSection issueKey={issue.key} notes={notes} onAddNote={onAddNote} />
+                  <NotesSection
+                    issueKey={issue.key}
+                    notes={notes}
+                    onAddNote={onAddNote}
+                    onToggleResolve={onToggleResolve}
+                  />
                 </div>
               )}
             </div>
@@ -270,17 +280,29 @@ function renderLinkedCell({ total, done, hasLinks, isOpen, onToggle }) {
   );
 }
 
-function renderNotesCell({ count, isOpen, onToggle }) {
+function renderNotesCell({ total, resolved, isOpen, onToggle }) {
+  if (total === 0) {
+    return (
+      <button
+        onClick={onToggle}
+        className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full border whitespace-nowrap transition-colors bg-slate-50 text-slate-400 border-slate-200 hover:brightness-95"
+      >
+        0 notes
+        <span className="text-[10px]">{isOpen ? "▲" : "▼"}</span>
+      </button>
+    );
+  }
+  const allResolved = resolved === total;
   return (
     <button
       onClick={onToggle}
       className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full border whitespace-nowrap transition-colors ${
-        count > 0
-          ? "bg-violet-50 text-violet-700 border-violet-200"
-          : "bg-slate-50 text-slate-400 border-slate-200"
+        allResolved
+          ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+          : "bg-violet-50 text-violet-700 border-violet-200"
       } hover:brightness-95`}
     >
-      {count} note{count === 1 ? "" : "s"}
+      {resolved}/{total} resolved
       <span className="text-[10px]">{isOpen ? "▲" : "▼"}</span>
     </button>
   );

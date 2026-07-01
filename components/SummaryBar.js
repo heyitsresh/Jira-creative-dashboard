@@ -2,9 +2,11 @@ import { useMemo } from "react";
 import { getDueBucket, groupBy, uniqueSorted } from "../lib/issueUtils";
 import { resolvePinnedPeople } from "../lib/pinnedPeople";
 import { colorForKey } from "../lib/colors";
+import useCountUp from "../lib/useCountUp";
 
 export default function SummaryBar({ issues, onStatusClick, onPersonClick }) {
   const byStatus = useMemo(() => groupBy(issues, (i) => i.status), [issues]);
+  const totalDisplay = useCountUp(issues.length);
 
   const pinned = useMemo(() => {
     const names = uniqueSorted(issues, (i) => i.assignee);
@@ -22,7 +24,7 @@ export default function SummaryBar({ issues, onStatusClick, onPersonClick }) {
   return (
     <div className="card px-4 sm:px-5 py-3 mb-6 flex flex-wrap items-center gap-x-6 gap-y-3 justify-between">
       <div className="flex items-center gap-2 shrink-0">
-        <span className="text-2xl font-semibold text-slate-800">{issues.length}</span>
+        <span className="text-2xl font-semibold text-slate-800">{totalDisplay}</span>
         <span className="text-xs text-slate-500 leading-tight">
           open task{issues.length === 1 ? "" : "s"}
           <br />

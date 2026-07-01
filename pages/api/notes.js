@@ -26,7 +26,7 @@ export default async function handler(req, res) {
     const keysParam = req.query.issueKeys;
     let query = supabase
       .from(TABLE)
-      .select("id, issue_key, author, body, created_at")
+      .select("id, issue_key, author, body, created_at, resolved")
       .order("created_at", { ascending: true });
 
     if (keysParam) {
@@ -64,6 +64,23 @@ export default async function handler(req, res) {
     return res.status(201).json({ note: data });
   }
 
-  res.setHeader("Allow", "GET, POST");
+  if (req.method === "PATCH") {
+    const { id, resolved } = req.body || {};
+    if (!id) {
+      return res.status(400).json({ error: "id is required." });
+    }
+    const { data, error } = await supabase
+      .from(TABLE)
+      .update({ resolved: Boolean(resolved) })
+      .eq("id", id)
+      .select()
+      .single();
+    if (error) {
+      return res.status(500).json({ error: error.message });
+    }
+    return res.status(200).json({ note: data });
+  }
+
+  res.setHeader("Allow", "GET, POST, PATCH");
   return res.status(405).json({ error: "Method not allowed." });
 }

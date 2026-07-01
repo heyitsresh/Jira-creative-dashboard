@@ -19,11 +19,15 @@ Standalone, read-only Next.js dashboard of open tasks in the **CREATE** Jira pro
 
 A header bar above every tab shows the total open-task count, a clickable count per status, and quick-access buttons for pinned people (currently Resh, Shiela, Vannessa — edit `lib/pinnedPeople.js` to change who's pinned or fix name matching). Clicking a pinned person jumps to By Assignee with them pre-selected; clicking a status jumps to MASTER filtered to that status.
 
+Selecting exactly one brand on MASTER shows a banner with that brand's logo and open-task count. Logos are pulled from Clearbit's free logo API by guessed domain, and only pre-filled for brands we're confident about (David's Bridal, Pendleton) — everything else falls back to a colored initial badge rather than risk showing the wrong company's logo. Edit `lib/brandAssets.js` to add a domain for any other brand, or to drop in your own product photo URL as the banner's hero image.
+
+The sidebar can be collapsed to an icon rail (toggle on its edge) and defaults to collapsed on narrower windows until you manually toggle it once, after which your choice is remembered.
+
 ## Shared notes (Supabase)
 
 Notes on MASTER are stored in Supabase, not Jira — this is the one place the app writes data anywhere, and it never touches Jira. Reads/writes go through `pages/api/notes.js` using the **service role key**, kept server-side only; the browser never talks to Supabase directly, so there's no key to leak and no RLS policy to get wrong.
 
-**Setup:**
+**Setup (new project):**
 
 1. Create a free project at supabase.com.
 2. In the SQL editor, run:
@@ -33,18 +37,38 @@ Notes on MASTER are stored in Supabase, not Jira — this is the one place the a
      issue_key text not null,
      author text not null,
      body text not null,
+     resolved boolean not null default false,
      created_at timestamptz not null default now()
    );
    create index task_notes_issue_key_idx on task_notes (issue_key);
+
+   create table active_viewers (
+     visitor_id text primary key,
+     last_seen timestamptz not null default now()
+   );
    ```
-3. In Project Settings → API, copy the **Project URL** and the **service_role** key (not the anon/public one).
+3. In Project Settings → API, copy the **Project URL** and the **Secret key** (`sb_secret_...` — the new format replacing the old `service_role` JWT key; not the Publishable key).
 4. Set `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` as env vars (locally in `.env.local`, in Vercel under Project Settings → Environment Variables).
 
-Until those two env vars are set, the app still works fine — the Notes column just shows 0 notes and adding one returns a clear error instead of crashing.
+**Migrating an existing project** (if you set up `task_notes` before the resolve-checkbox or presence features existed), just run:
+```sql
+alter table task_notes add column if not exists resolved boolean not null default false;
 
-**How "auto-update when shared" works:** MASTER polls `/api/notes` every 20 seconds for everyone viewing the dashboard, so a note one person adds shows up for everyone else within ~20s without a manual refresh. This isn't true push-realtime (that would mean exposing a Supabase key to the browser and setting up Row Level Security) — polling was the simpler, more secure trade-off. Say the word if you'd rather have instant push updates and I'll wire up Supabase Realtime instead.
+create table if not exists active_viewers (
+  visitor_id text primary key,
+  last_seen timestamptz not null default now()
+);
+```
 
-There's no login on this — anyone with the dashboard URL can read and add notes. That matches "share with others" as described; let me know if you actually want it access-controlled.
+Until Supabase env vars are set, the app still works fine — the Notes column just shows 0 notes and adding one returns a clear error instead of crashing; the presence indicator simply doesn't appear.
+
+**How "auto-update when shared" works:** MASTER polls `/api/notes` every 20 seconds, and the presence indicator heartbeats/polls `/api/presence` every 15 seconds, for everyone viewing the dashboard — so a note one person adds, or resolves, shows up for everyone else within that window without a manual refresh. This isn't true push-realtime (that would mean exposing a Supabase key to the browser and setting up Row Level Security) — polling was the simpler, more secure trade-off. Say the word if you'd rather have instant push updates and I'll wire up Supabase Realtime instead.
+
+Each note has a checkbox to mark it resolved — resolved notes get struck through, fade, and sink to the bottom of the list; the Notes column badge shows resolved/total (green once everything's resolved), same visual language as the Linked Items column.
+
+The presence indicator in the top bar shows an anonymous colored dot per browser tab currently viewing the dashboard (no names, no login) — it's a heartbeat-based approximation, so someone who closes the tab drops off within ~45 seconds.
+
+There's no login on this — anyone with the dashboard URL can read/add/resolve notes and shows up in presence. That matches "share with others" as described; let me know if you actually want it access-controlled.
 
 ## Local development
 

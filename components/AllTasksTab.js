@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, useCallback } from "react";
 import IssueTable from "./IssueTable";
 import FilterChips from "./FilterChips";
 import FilterSelect from "./FilterSelect";
+import BrandHeader from "./BrandHeader";
 import { applyFilters, groupBy, uniqueSorted } from "../lib/issueUtils";
 import { BRAND_LABELS } from "../lib/clientConfig";
 
@@ -73,8 +74,34 @@ export default function AllTasksTab({
     }));
   }
 
+  async function handleToggleResolve(noteId, resolved) {
+    const resp = await fetch("/api/notes", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: noteId, resolved }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data?.error || "Failed to update note.");
+    setNotesByKey((prev) => {
+      const next = {};
+      for (const key of Object.keys(prev)) {
+        next[key] = prev[key].map((n) => (n.id === noteId ? { ...n, resolved } : n));
+      }
+      return next;
+    });
+  }
+
+  const singleSelectedBrand = filters.client.length === 1 ? filters.client[0] : null;
+  const singleBrandCount = singleSelectedBrand
+    ? byBrand.find((b) => b.name === singleSelectedBrand)?.count || 0
+    : 0;
+
   return (
     <div>
+      {singleSelectedBrand && (
+        <BrandHeader brand={singleSelectedBrand} count={singleBrandCount} />
+      )}
+
       <div className="mb-4">
         <p className="text-xs font-medium text-slate-500 mb-1.5">
           Brands (select as many as you need)
@@ -149,6 +176,7 @@ export default function AllTasksTab({
         issues={filtered}
         notesByKey={notesByKey}
         onAddNote={handleAddNote}
+        onToggleResolve={handleToggleResolve}
       />
     </div>
   );

@@ -15,6 +15,7 @@ body {
   border: 1px solid #eef0f6;
   border-radius: 16px;
   box-shadow: 0 2px 6px rgba(50, 50, 93, 0.06), 0 1px 3px rgba(0, 0, 0, 0.04);
+  transition: box-shadow 0.2s ease;
 }
 
 .chip {
@@ -113,6 +114,45 @@ table th {
   top: 0;
   background: #f8f9fb;
   z-index: 1;
+}
+
+@keyframes fadeSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-slide-in {
+  animation: fadeSlideIn 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.2s ease-out both;
+}
+
+.pill,
+.chip,
+.nav-item-dark,
+.card {
+  will-change: transform;
+}
+
+.pill:active {
+  transform: scale(0.97);
 }
 
 ::-webkit-scrollbar {

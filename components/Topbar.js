@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Menu, Search, RefreshCw, Bell, Lock } from "lucide-react";
+import PresenceIndicator from "./PresenceIndicator";
 
 export default function Topbar({
   onMenuClick,
@@ -47,6 +48,8 @@ export default function Topbar({
       </div>
 
       <div className="flex items-center gap-2 shrink-0">
+        <PresenceIndicator />
+
         <button
           onClick={onRefresh}
           disabled={loading}

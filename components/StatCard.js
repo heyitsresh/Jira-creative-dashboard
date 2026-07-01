@@ -1,4 +1,8 @@
+import useCountUp from "../lib/useCountUp";
+
 export default function StatCard({ label, value, icon: Icon, gradient = ["#7b61ff", "#9c6bff"], caption }) {
+  const displayValue = useCountUp(value);
+
   return (
     <div className="card p-4 min-w-0">
       <div className="flex items-start justify-between gap-2">
@@ -12,7 +16,7 @@ export default function StatCard({ label, value, icon: Icon, gradient = ["#7b61f
         )}
         <div className="text-right min-w-0 flex-1">
           <p className="text-xs text-slate-400 truncate">{label}</p>
-          <p className="text-xl font-semibold text-slate-800 mt-0.5 truncate">{value}</p>
+          <p className="text-xl font-semibold text-slate-800 mt-0.5 truncate">{displayValue}</p>
         </div>
       </div>
       {caption && (
