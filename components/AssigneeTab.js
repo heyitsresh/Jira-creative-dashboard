@@ -1,15 +1,21 @@
 import { useMemo, useState } from "react";
 import IssueTable from "./IssueTable";
 import FilterSelect from "./FilterSelect";
-import { groupBy, uniqueSorted } from "../lib/issueUtils";
+import { getDueBucket, groupBy, uniqueSorted } from "../lib/issueUtils";
 import { colorForKey } from "../lib/colors";
 
-export default function AssigneeTab({ issues }) {
-  const byAssignee = useMemo(() => groupBy(issues, (i) => i.assignee), [issues]);
-  const [selected, setSelected] = useState(null);
+export default function AssigneeTab({ issues, selectedAssignee, onSelectAssignee }) {
+  const byAssignee = useMemo(() => {
+    const groups = groupBy(issues, (i) => i.assignee);
+    return groups.map((g) => ({
+      ...g,
+      overdue: g.issues.filter((i) => getDueBucket(i.dueDate) === "Overdue").length,
+    }));
+  }, [issues]);
+
   const [typeFilter, setTypeFilter] = useState("");
 
-  const activeAssignee = selected || byAssignee[0]?.name || null;
+  const activeAssignee = selectedAssignee || byAssignee[0]?.name || null;
   const assigneeIssuesAll = useMemo(
     () => issues.filter((i) => i.assignee === activeAssignee),
     [issues, activeAssignee]
@@ -31,7 +37,7 @@ export default function AssigneeTab({ issues }) {
   }
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-[220px_1fr] gap-6 min-w-0">
+    <div className="grid grid-cols-1 md:grid-cols-[240px_1fr] gap-6 min-w-0">
       <div className="card p-2 h-fit md:sticky md:top-28 max-h-[70vh] overflow-y-auto">
         {byAssignee.map((a) => {
           const isActive = a.name === activeAssignee;
@@ -39,11 +45,11 @@ export default function AssigneeTab({ issues }) {
             <button
               key={a.name}
               onClick={() => {
-                setSelected(a.name);
+                onSelectAssignee(a.name);
                 setTypeFilter("");
               }}
               className={`w-full flex items-center justify-between gap-2 px-2.5 py-2 rounded-md text-sm text-left transition-colors ${
-                isActive ? "bg-indigo-50 text-indigo-700" : "hover:bg-slate-50 text-slate-700"
+                isActive ? "bg-violet-50 text-violet-700" : "hover:bg-slate-50 text-slate-700"
               }`}
             >
               <span className="flex items-center gap-2 min-w-0">
@@ -53,7 +59,14 @@ export default function AssigneeTab({ issues }) {
                 />
                 <span className="truncate">{a.name}</span>
               </span>
-              <span className="text-xs text-slate-400 shrink-0">{a.count}</span>
+              <span className="flex items-center gap-1 shrink-0">
+                {a.overdue > 0 && (
+                  <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-[#f5365c] text-white">
+                    {a.overdue} overdue
+                  </span>
+                )}
+                <span className="text-xs text-slate-400">{a.count}</span>
+              </span>
             </button>
           );
         })}

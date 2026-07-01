@@ -7,14 +7,14 @@ export default function FilterChips({ filters, onClear, onClearAll }) {
   return (
     <div className="flex flex-wrap items-center gap-2 mb-4">
       <span className="text-xs text-slate-500 font-medium">Filters:</span>
-      {entries.map(([field, value]) => (
-        <span key={field} className="chip">
+      {entries.map(({ field, value }) => (
+        <span key={`${field}-${value}`} className="chip">
           <span className="truncate max-w-[180px]">
             {fieldLabel(field)}: {value}
           </span>
           <button
-            onClick={() => onClear(field)}
-            className="text-[#0b5cad] hover:text-red-600 font-semibold leading-none"
+            onClick={() => onClear(field, value)}
+            className="text-[#5e40e0] hover:text-red-600 font-semibold leading-none"
             aria-label={`Clear ${field} filter`}
           >
             ×

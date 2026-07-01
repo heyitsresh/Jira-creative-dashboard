@@ -1,12 +1,9 @@
 import { useState } from "react";
-import { Menu, Search, RefreshCw, Bell, Lock, Briefcase } from "lucide-react";
+import { Menu, Search, RefreshCw, Bell, Lock } from "lucide-react";
 
 export default function Topbar({
   onMenuClick,
   pageTitle,
-  projects,
-  selectedProjects,
-  onProjectsChange,
   onRefresh,
   loading,
   fetchedAt,
@@ -14,12 +11,7 @@ export default function Topbar({
   onSearch,
   onBellClick,
 }) {
-  const [projectMenuOpen, setProjectMenuOpen] = useState(false);
   const [searchValue, setSearchValue] = useState("");
-
-  const projectLabel = selectedProjects.length
-    ? `${selectedProjects.length} project${selectedProjects.length > 1 ? "s" : ""}`
-    : "All projects";
 
   return (
     <div className="card px-4 sm:px-5 py-3 mb-6 flex flex-wrap items-center gap-3 justify-between">
@@ -55,49 +47,6 @@ export default function Topbar({
       </div>
 
       <div className="flex items-center gap-2 shrink-0">
-        <div className="relative">
-          <button
-            onClick={() => setProjectMenuOpen((v) => !v)}
-            className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-full border border-slate-200 text-slate-600 hover:bg-slate-50"
-          >
-            <Briefcase size={14} />
-            {projectLabel}
-          </button>
-          {projectMenuOpen && (
-            <div className="absolute right-0 mt-2 w-64 max-h-72 overflow-y-auto bg-white text-slate-800 rounded-xl shadow-xl border border-slate-100 p-2 z-40">
-              <button
-                className="w-full text-left text-xs px-2 py-1.5 rounded-lg hover:bg-slate-50 font-medium"
-                onClick={() => onProjectsChange([])}
-              >
-                All projects
-              </button>
-              <div className="h-px bg-slate-100 my-1" />
-              {projects.map((p) => {
-                const checked = selectedProjects.includes(p);
-                return (
-                  <label
-                    key={p}
-                    className="flex items-center gap-2 text-xs px-2 py-1.5 rounded-lg hover:bg-slate-50 cursor-pointer"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      onChange={() => {
-                        onProjectsChange(
-                          checked
-                            ? selectedProjects.filter((x) => x !== p)
-                            : [...selectedProjects, p]
-                        );
-                      }}
-                    />
-                    <span className="truncate">{p}</span>
-                  </label>
-                );
-              })}
-            </div>
-          )}
-        </div>
-
         <button
           onClick={onRefresh}
           disabled={loading}

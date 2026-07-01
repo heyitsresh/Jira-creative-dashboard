@@ -2,7 +2,10 @@
 // Jira, and only exposes GET to the browser. No writes, transitions, or
 // mutations of any kind happen here.
 
+import { matchBrand } from "../../lib/clientConfig";
+
 const JIRA_SITE = "https://ave7.atlassian.net";
+const JIRA_PROJECT = "CREATE";
 const CLIENT_FIELD = "customfield_10866";
 const FIELDS = [
   "summary",
@@ -59,8 +62,28 @@ function mapLinkedItems(issuelinks) {
   return items;
 }
 
+function daysOpenFromCreated(createdStr) {
+  if (!createdStr) return null;
+  const created = new Date(createdStr);
+  if (Number.isNaN(created.getTime())) return null;
+  const startOfDay = (d) => {
+    const c = new Date(d);
+    c.setHours(0, 0, 0, 0);
+    return c;
+  };
+  const ms = startOfDay(new Date()).getTime() - startOfDay(created).getTime();
+  return Math.max(0, Math.round(ms / 86400000));
+}
+
+// Returns the mapped issue, or null if its Client field doesn't match any
+// whitelisted brand (see lib/clientConfig.js) — those issues are dropped
+// entirely rather than shown as "Unspecified".
 function mapIssue(raw) {
   const f = raw.fields || {};
+  const rawClient = normalizeClient(f[CLIENT_FIELD]);
+  const brand = matchBrand(rawClient);
+  if (!brand) return null;
+
   return {
     key: raw.key,
     summary: f.summary || "(no summary)",
@@ -72,21 +95,17 @@ function mapIssue(raw) {
     dueDate: f.duedate || null,
     project: f.project?.key || "Unknown",
     projectName: f.project?.name || f.project?.key || "Unknown",
-    client: normalizeClient(f[CLIENT_FIELD]),
+    client: brand,
     issueType: f.issuetype?.name || "Unknown",
     updated: f.updated || null,
     created: f.created || null,
+    daysOpen: daysOpenFromCreated(f.created),
     linkedItems: mapLinkedItems(f.issuelinks),
   };
 }
 
-function buildJql(projects) {
-  const clauses = ["statusCategory != Done"];
-  if (projects && projects.length) {
-    const escaped = projects.map((p) => JSON.stringify(p)).join(",");
-    clauses.push(`project in (${escaped})`);
-  }
-  return `${clauses.join(" AND ")} ORDER BY updated DESC`;
+function buildJql() {
+  return `project = ${JSON.stringify(JIRA_PROJECT)} AND statusCategory != Done ORDER BY updated DESC`;
 }
 
 export default async function handler(req, res) {
@@ -106,15 +125,7 @@ export default async function handler(req, res) {
     });
   }
 
-  const projectsParam = req.query.projects;
-  const projects = projectsParam
-    ? String(projectsParam)
-        .split(",")
-        .map((p) => p.trim())
-        .filter(Boolean)
-    : [];
-
-  const jql = buildJql(projects);
+  const jql = buildJql();
   const authHeader =
     "Basic " + Buffer.from(`${email}:${token}`).toString("base64");
 
@@ -159,7 +170,8 @@ export default async function handler(req, res) {
 
       const data = await resp.json();
       for (const raw of data.issues || []) {
-        issues.push(mapIssue(raw));
+        const mapped = mapIssue(raw);
+        if (mapped) issues.push(mapped);
       }
 
       isLast = Boolean(data.isLast) || !data.nextPageToken;

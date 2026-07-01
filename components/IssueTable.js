@@ -1,5 +1,6 @@
 import { Fragment, useMemo, useState } from "react";
 import StatusBadge from "./StatusBadge";
+import NotesSection from "./NotesSection";
 import { colorForKey, DUE_BUCKET_COLORS } from "../lib/colors";
 import { formatDate, getDueBucket } from "../lib/issueUtils";
 
@@ -10,11 +11,13 @@ const ALL_COLUMNS = [
   { key: "assignee", label: "Assignee", sortable: true },
   { key: "priority", label: "Priority", sortable: true },
   { key: "client", label: "Client", sortable: true },
+  { key: "issueType", label: "Type", sortable: true },
+  { key: "daysOpen", label: "Days Running", sortable: true },
   { key: "dueDate", label: "Due Date", sortable: true },
   { key: "project", label: "Project", sortable: true },
-  { key: "issueType", label: "Type", sortable: true },
   { key: "updated", label: "Updated", sortable: true },
   { key: "linked", label: "Linked Items", sortable: false },
+  { key: "notes", label: "Notes", sortable: false },
 ];
 
 function compareValues(a, b, key) {
@@ -25,6 +28,9 @@ function compareValues(a, b, key) {
     const bt = bv ? new Date(bv).getTime() : -Infinity;
     return at - bt;
   }
+  if (key === "daysOpen") {
+    return (av ?? -1) - (bv ?? -1);
+  }
   return String(av ?? "").localeCompare(String(bv ?? ""));
 }
 
@@ -33,11 +39,18 @@ export default function IssueTable({
   hideColumns = [],
   defaultSort = { key: "updated", dir: "desc" },
   emptyMessage = "No open tasks match the current filters.",
+  notesByKey = null, // { [issueKey]: Note[] } — pass to enable the Notes column
+  onAddNote = null, // (issueKey, { author, body }) => Promise
 }) {
   const [sort, setSort] = useState(defaultSort);
   const [expanded, setExpanded] = useState(new Set());
 
-  const columns = ALL_COLUMNS.filter((c) => !hideColumns.includes(c.key));
+  const notesEnabled = Boolean(notesByKey && onAddNote);
+  const columns = ALL_COLUMNS.filter((c) => {
+    if (hideColumns.includes(c.key)) return false;
+    if (c.key === "notes" && !notesEnabled) return false;
+    return true;
+  });
 
   function toggleExpanded(key) {
     setExpanded((prev) => {
@@ -68,7 +81,7 @@ export default function IssueTable({
   return (
     <div className="card overflow-hidden">
       <div className="overflow-x-auto max-h-[65vh]">
-        <table className="w-full text-sm border-collapse min-w-[860px]">
+        <table className="w-full text-sm border-collapse min-w-[960px]">
           <thead>
             <tr className="text-left text-xs text-slate-500 border-b border-slate-200">
               {columns.map((col) => (
@@ -101,6 +114,8 @@ export default function IssueTable({
             {sorted.map((issue) => {
               const bucket = getDueBucket(issue.dueDate);
               const hasLinks = issue.linkedItems && issue.linkedItems.length > 0;
+              const notes = notesEnabled ? notesByKey[issue.key] || [] : [];
+              const canExpand = hasLinks || notesEnabled;
               const isOpen = expanded.has(issue.key);
               return (
                 <FragmentRow
@@ -109,8 +124,11 @@ export default function IssueTable({
                   bucket={bucket}
                   columns={columns}
                   hasLinks={hasLinks}
+                  notesEnabled={notesEnabled}
+                  notes={notes}
+                  onAddNote={onAddNote}
                   isOpen={isOpen}
-                  onToggle={() => hasLinks && toggleExpanded(issue.key)}
+                  onToggle={() => canExpand && toggleExpanded(issue.key)}
                 />
               );
             })}
@@ -121,47 +139,73 @@ export default function IssueTable({
   );
 }
 
-function FragmentRow({ issue, bucket, columns, hasLinks, isOpen, onToggle }) {
+function FragmentRow({
+  issue,
+  bucket,
+  columns,
+  hasLinks,
+  notesEnabled,
+  notes,
+  onAddNote,
+  isOpen,
+  onToggle,
+}) {
   const total = issue.linkedItems?.length || 0;
   const done = issue.linkedItems?.filter((l) => l.statusCategory === "Done").length || 0;
+  const canExpand = hasLinks || notesEnabled;
 
   return (
     <Fragment>
       <tr className="border-b border-slate-100 last:border-0 hover:bg-slate-50">
         {columns.map((col) => (
           <td key={col.key} className="px-3 py-2 align-top max-w-[260px]">
-            {col.key === "linked"
-              ? renderLinkedCell({ total, done, hasLinks, isOpen, onToggle })
-              : renderCell(col.key, issue, bucket)}
+            {col.key === "linked" &&
+              renderLinkedCell({ total, done, hasLinks, isOpen, onToggle })}
+            {col.key === "notes" &&
+              renderNotesCell({ count: notes.length, isOpen, onToggle })}
+            {col.key !== "linked" && col.key !== "notes" &&
+              renderCell(col.key, issue, bucket)}
           </td>
         ))}
       </tr>
-      {hasLinks && isOpen && (
+      {canExpand && isOpen && (
         <tr className="bg-slate-50/70 border-b border-slate-100">
-          <td colSpan={columns.length} className="px-3 py-2">
-            <div className="pl-2 border-l-2 border-slate-200 flex flex-col gap-1.5">
-              {issue.linkedItems.map((link) => (
-                <div
-                  key={`${issue.key}-${link.key}`}
-                  className="flex items-center gap-2 text-xs flex-wrap"
-                >
-                  <span className="text-slate-400 whitespace-nowrap">
-                    {link.relation}
-                  </span>
-                  <a
-                    href={link.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-indigo-600 hover:text-indigo-800 font-medium hover:underline whitespace-nowrap"
-                  >
-                    {link.key}
-                  </a>
-                  <span className="truncate max-w-[280px] text-slate-600" title={link.summary}>
-                    {link.summary}
-                  </span>
-                  <StatusBadge status={link.status} statusCategory={link.statusCategory} />
+          <td colSpan={columns.length} className="px-3 py-3">
+            <div className="flex flex-col lg:flex-row gap-4">
+              {hasLinks && (
+                <div className="flex-1 min-w-0 pl-2 border-l-2 border-slate-200 flex flex-col gap-1.5">
+                  <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide mb-0.5">
+                    Linked Items
+                  </p>
+                  {issue.linkedItems.map((link) => (
+                    <div
+                      key={`${issue.key}-${link.key}`}
+                      className="flex items-center gap-2 text-xs flex-wrap"
+                    >
+                      <span className="text-slate-400 whitespace-nowrap">
+                        {link.relation}
+                      </span>
+                      <a
+                        href={link.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-indigo-600 hover:text-indigo-800 font-medium hover:underline whitespace-nowrap"
+                      >
+                        {link.key}
+                      </a>
+                      <span className="truncate max-w-[280px] text-slate-600" title={link.summary}>
+                        {link.summary}
+                      </span>
+                      <StatusBadge status={link.status} statusCategory={link.statusCategory} />
+                    </div>
+                  ))}
                 </div>
-              ))}
+              )}
+              {notesEnabled && (
+                <div className="flex-1 min-w-0 pl-2 border-l-2 border-slate-200">
+                  <NotesSection issueKey={issue.key} notes={notes} onAddNote={onAddNote} />
+                </div>
+              )}
             </div>
           </td>
         </tr>
@@ -185,6 +229,22 @@ function renderLinkedCell({ total, done, hasLinks, isOpen, onToggle }) {
       } hover:brightness-95`}
     >
       {done}/{total} linked done
+      <span className="text-[10px]">{isOpen ? "▲" : "▼"}</span>
+    </button>
+  );
+}
+
+function renderNotesCell({ count, isOpen, onToggle }) {
+  return (
+    <button
+      onClick={onToggle}
+      className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full border whitespace-nowrap transition-colors ${
+        count > 0
+          ? "bg-violet-50 text-violet-700 border-violet-200"
+          : "bg-slate-50 text-slate-400 border-slate-200"
+      } hover:brightness-95`}
+    >
+      {count} note{count === 1 ? "" : "s"}
       <span className="text-[10px]">{isOpen ? "▲" : "▼"}</span>
     </button>
   );
@@ -231,6 +291,13 @@ function renderCell(key, issue, bucket) {
       return (
         <span className="truncate block max-w-[180px]" title={issue.client}>
           {issue.client}
+        </span>
+      );
+    case "daysOpen":
+      return (
+        <span className="text-xs font-medium text-slate-600 whitespace-nowrap">
+          {issue.daysOpen ?? "—"}
+          {issue.daysOpen !== null && issue.daysOpen !== undefined ? " d" : ""}
         </span>
       );
     case "dueDate":

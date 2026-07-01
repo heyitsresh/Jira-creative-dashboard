@@ -1,10 +1,11 @@
 import { useState } from "react";
 import Sidebar from "./Sidebar";
 import Topbar from "./Topbar";
+import SummaryBar from "./SummaryBar";
 
 const TAB_TITLES = {
   overview: "Overview",
-  tasks: "All Tasks",
+  tasks: "MASTER",
   assignee: "By Assignee",
   client: "By Client",
 };
@@ -12,15 +13,15 @@ const TAB_TITLES = {
 export default function Layout({
   activeTab,
   onTabChange,
-  projects,
-  selectedProjects,
-  onProjectsChange,
+  issues,
   onRefresh,
   loading,
   fetchedAt,
   overdueCount = 0,
   onSearch,
   onBellClick,
+  onStatusClick,
+  onPersonClick,
   children,
 }) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -39,15 +40,17 @@ export default function Layout({
           <Topbar
             onMenuClick={() => setMobileNavOpen(true)}
             pageTitle={TAB_TITLES[activeTab] || "Dashboard"}
-            projects={projects}
-            selectedProjects={selectedProjects}
-            onProjectsChange={onProjectsChange}
             onRefresh={onRefresh}
             loading={loading}
             fetchedAt={fetchedAt}
             overdueCount={overdueCount}
             onSearch={onSearch}
             onBellClick={onBellClick}
+          />
+          <SummaryBar
+            issues={issues}
+            onStatusClick={onStatusClick}
+            onPersonClick={onPersonClick}
           />
           {children}
         </main>

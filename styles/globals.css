@@ -78,6 +78,36 @@ body {
   box-shadow: 0 4px 12px rgba(123, 97, 255, 0.35);
 }
 
+.card-dark {
+  background: linear-gradient(180deg, #1b1b2e 0%, #121220 100%);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 16px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+}
+
+.nav-item-dark {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #9391ab;
+  transition: background-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.nav-item-dark:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+}
+
+.nav-item-dark.active {
+  background: linear-gradient(135deg, #7b61ff, #9c6bff);
+  color: white;
+  box-shadow: 0 4px 14px rgba(123, 97, 255, 0.45);
+}
+
 table th {
   position: sticky;
   top: 0;
