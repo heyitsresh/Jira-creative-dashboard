@@ -4,6 +4,7 @@ import Topbar from "./Topbar";
 import SummaryBar from "./SummaryBar";
 
 const COLLAPSE_KEY = "jira-dashboard-sidebar-collapsed";
+const AUTO_COLLAPSE_BREAKPOINT = 1280; // px — narrower than this, default to collapsed
 
 const TAB_TITLES = {
   overview: "Overview",
@@ -30,9 +31,22 @@ export default function Layout({
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
 
+  // Once the user has explicitly toggled the sidebar, their choice sticks
+  // (persisted below) and auto-collapse-on-resize stops interfering.
+  // Before that, the sidebar defaults to collapsed on narrower windows so
+  // the wide MASTER table gets more room without anyone having to ask.
   useEffect(() => {
     const saved = window.localStorage.getItem(COLLAPSE_KEY);
-    if (saved === "1") setCollapsed(true);
+    if (saved !== null) {
+      setCollapsed(saved === "1");
+      return;
+    }
+
+    const mql = window.matchMedia(`(max-width: ${AUTO_COLLAPSE_BREAKPOINT}px)`);
+    const applyAuto = () => setCollapsed(mql.matches);
+    applyAuto();
+    mql.addEventListener("change", applyAuto);
+    return () => mql.removeEventListener("change", applyAuto);
   }, []);
 
   function toggleCollapsed() {
