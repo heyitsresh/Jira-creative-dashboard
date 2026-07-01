@@ -1,0 +1,95 @@
+@import "tailwindcss";
+
+html,
+body {
+  background-color: #eef0f8;
+  color: #32325d;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+.card {
+  background: white;
+  border: 1px solid #eef0f6;
+  border-radius: 16px;
+  box-shadow: 0 2px 6px rgba(50, 50, 93, 0.06), 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+  background: #efeaff;
+  color: #5e40e0;
+  border: 1px solid #ded3ff;
+}
+
+.pill {
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+  border: 1px solid #e4e6f0;
+  background: white;
+  color: #525f7f;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.pill:hover {
+  background: #f5f3ff;
+  border-color: #ded3ff;
+}
+
+.pill.active {
+  background: linear-gradient(135deg, #7b61ff, #9c6bff);
+  border-color: transparent;
+  color: white;
+  box-shadow: 0 4px 10px rgba(123, 97, 255, 0.35);
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #67748e;
+  transition: background-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.nav-item:hover {
+  background: #f5f3ff;
+  color: #5e40e0;
+}
+
+.nav-item.active {
+  background: linear-gradient(135deg, #7b61ff, #9c6bff);
+  color: white;
+  box-shadow: 0 4px 12px rgba(123, 97, 255, 0.35);
+}
+
+table th {
+  position: sticky;
+  top: 0;
+  background: #f8f9fb;
+  z-index: 1;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd0d8;
+  border-radius: 6px;
+}
