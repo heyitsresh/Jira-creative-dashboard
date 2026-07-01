@@ -1,27 +1,51 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Search } from "lucide-react";
 import IssueTable from "./IssueTable";
 import { getDueBucket, groupBy } from "../lib/issueUtils";
 import { colorForKey } from "../lib/colors";
+import { BRAND_LABELS } from "../lib/clientConfig";
 
 const NO_ASIN = "No ASIN Detected";
 
 export default function ProductTab({ issues }) {
+  const [selectedBrands, setSelectedBrands] = useState([]);
+  const [selected, setSelected] = useState(null);
+  const [search, setSearch] = useState("");
+
+  const brandCounts = useMemo(() => {
+    const byBrand = groupBy(issues, (i) => i.client);
+    const map = new Map(byBrand.map((b) => [b.name, b.count]));
+    return BRAND_LABELS.map((label) => ({ label, count: map.get(label) || 0 }));
+  }, [issues]);
+
+  const brandFilteredIssues = useMemo(
+    () =>
+      selectedBrands.length
+        ? issues.filter((i) => selectedBrands.includes(i.client))
+        : issues,
+    [issues, selectedBrands]
+  );
+
   const byProduct = useMemo(() => {
-    const groups = groupBy(issues, (i) => i.asin || NO_ASIN);
+    const groups = groupBy(brandFilteredIssues, (i) => i.asin || NO_ASIN);
     return groups.map((g) => ({
       ...g,
       overdue: g.issues.filter((i) => getDueBucket(i.dueDate) === "Overdue").length,
     }));
-  }, [issues]);
+  }, [brandFilteredIssues]);
 
-  const [selected, setSelected] = useState(null);
-  const [search, setSearch] = useState("");
+  // If the brand filter changes and the currently selected ASIN no longer
+  // appears in the filtered set, fall back to the first available one.
+  useEffect(() => {
+    if (selected && !byProduct.some((g) => g.name === selected)) {
+      setSelected(null);
+    }
+  }, [byProduct, selected]);
 
   const activeProduct = selected || byProduct[0]?.name || null;
   const productIssues = useMemo(
-    () => issues.filter((i) => (i.asin || NO_ASIN) === activeProduct),
-    [issues, activeProduct]
+    () => brandFilteredIssues.filter((i) => (i.asin || NO_ASIN) === activeProduct),
+    [brandFilteredIssues, activeProduct]
   );
 
   const visibleGroups = useMemo(() => {
@@ -30,7 +54,13 @@ export default function ProductTab({ issues }) {
     return byProduct.filter((g) => g.name.toLowerCase().includes(q));
   }, [byProduct, search]);
 
-  if (byProduct.length === 0) {
+  function toggleBrand(label) {
+    setSelectedBrands((prev) =>
+      prev.includes(label) ? prev.filter((b) => b !== label) : [...prev, label]
+    );
+  }
+
+  if (issues.length === 0) {
     return <p className="text-sm text-slate-400 py-10 text-center">No open tasks.</p>;
   }
 
@@ -42,6 +72,25 @@ export default function ProductTab({ issues }) {
         <code className="bg-slate-100 px-1 py-0.5 rounded">lib/asin.js</code> if your titles use a
         different pattern.
       </p>
+
+      <div className="mb-4">
+        <p className="text-xs font-medium text-slate-500 mb-1.5">
+          Filter by brand (select as many as you need)
+        </p>
+        <div className="flex flex-wrap gap-1.5">
+          {brandCounts.map(({ label, count }) => (
+            <button
+              key={label}
+              onClick={() => toggleBrand(label)}
+              className={`pill ${selectedBrands.includes(label) ? "active" : ""}`}
+              title={label}
+            >
+              <span className="inline-block max-w-[200px] truncate align-middle">{label}</span>
+              <span className="ml-1 opacity-70">({count})</span>
+            </button>
+          ))}
+        </div>
+      </div>
 
       <div className="grid grid-cols-1 md:grid-cols-[260px_1fr] gap-6 min-w-0">
         <div className="card p-2 h-fit md:sticky md:top-28 max-h-[70vh] flex flex-col overflow-hidden">
@@ -94,29 +143,37 @@ export default function ProductTab({ issues }) {
         </div>
 
         <div className="min-w-0">
-          <div className="mb-4">
-            <h2 className="text-base font-semibold text-slate-800 truncate max-w-[420px] font-mono">
-              {activeProduct}
-            </h2>
-            <p className="text-xs text-slate-400">
-              {productIssues.length} open task{productIssues.length === 1 ? "" : "s"}
-              {activeProduct !== NO_ASIN && (
-                <>
-                  {" "}
-                  ·{" "}
-                  <a
-                    href={`https://www.amazon.com/dp/${activeProduct}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-indigo-600 hover:underline"
-                  >
-                    view on Amazon
-                  </a>
-                </>
-              )}
+          {activeProduct ? (
+            <>
+              <div className="mb-4">
+                <h2 className="text-base font-semibold text-slate-800 truncate max-w-[420px] font-mono">
+                  {activeProduct}
+                </h2>
+                <p className="text-xs text-slate-400">
+                  {productIssues.length} open task{productIssues.length === 1 ? "" : "s"}
+                  {activeProduct !== NO_ASIN && (
+                    <>
+                      {" "}
+                      ·{" "}
+                      <a
+                        href={`https://www.amazon.com/dp/${activeProduct}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-indigo-600 hover:underline"
+                      >
+                        view on Amazon
+                      </a>
+                    </>
+                  )}
+                </p>
+              </div>
+              <IssueTable issues={productIssues} />
+            </>
+          ) : (
+            <p className="text-sm text-slate-400 py-10 text-center">
+              No products match the selected brand(s).
             </p>
-          </div>
-          <IssueTable issues={productIssues} />
+          )}
         </div>
       </div>
     </div>
