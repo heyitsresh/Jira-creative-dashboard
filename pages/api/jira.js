@@ -3,6 +3,7 @@
 // mutations of any kind happen here.
 
 import { matchBrand } from "../../lib/clientConfig";
+import { extractAsin } from "../../lib/asin";
 
 const JIRA_SITE = "https://ave7.atlassian.net";
 const JIRA_PROJECT = "CREATE";
@@ -96,6 +97,7 @@ function mapIssue(raw) {
     project: f.project?.key || "Unknown",
     projectName: f.project?.name || f.project?.key || "Unknown",
     client: brand,
+    asin: extractAsin(f.summary),
     issueType: f.issuetype?.name || "Unknown",
     updated: f.updated || null,
     created: f.created || null,

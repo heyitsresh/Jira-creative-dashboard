@@ -5,6 +5,7 @@ import OverviewTab from "../components/OverviewTab";
 import AllTasksTab from "../components/AllTasksTab";
 import AssigneeTab from "../components/AssigneeTab";
 import ClientTab from "../components/ClientTab";
+import ProductTab from "../components/ProductTab";
 import { emptyFilters, getDueBucket } from "../lib/issueUtils";
 
 export default function Home() {
@@ -131,6 +132,7 @@ export default function Home() {
               />
             )}
             {activeTab === "client" && <ClientTab issues={issues} />}
+            {activeTab === "product" && <ProductTab issues={issues} />}
           </>
         )}
       </Layout>

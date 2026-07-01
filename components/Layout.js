@@ -1,13 +1,16 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Sidebar from "./Sidebar";
 import Topbar from "./Topbar";
 import SummaryBar from "./SummaryBar";
+
+const COLLAPSE_KEY = "jira-dashboard-sidebar-collapsed";
 
 const TAB_TITLES = {
   overview: "Overview",
   tasks: "MASTER",
   assignee: "By Assignee",
   client: "By Client",
+  product: "By Product",
 };
 
 export default function Layout({
@@ -25,6 +28,20 @@ export default function Layout({
   children,
 }) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
+
+  useEffect(() => {
+    const saved = window.localStorage.getItem(COLLAPSE_KEY);
+    if (saved === "1") setCollapsed(true);
+  }, []);
+
+  function toggleCollapsed() {
+    setCollapsed((prev) => {
+      const next = !prev;
+      window.localStorage.setItem(COLLAPSE_KEY, next ? "1" : "0");
+      return next;
+    });
+  }
 
   return (
     <div className="min-h-screen bg-[#eef0f8] text-slate-900 flex overflow-x-hidden">
@@ -33,6 +50,8 @@ export default function Layout({
         onTabChange={onTabChange}
         open={mobileNavOpen}
         onClose={() => setMobileNavOpen(false)}
+        collapsed={collapsed}
+        onToggleCollapsed={toggleCollapsed}
       />
 
       <div className="flex-1 min-w-0 flex flex-col">

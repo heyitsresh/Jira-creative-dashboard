@@ -59,11 +59,11 @@ export default function AllTasksTab({
     return () => clearInterval(id);
   }, [loadNotes]);
 
-  async function handleAddNote(issueKey, { author, body }) {
+  async function handleAddNote(issueKey, { body }) {
     const resp = await fetch("/api/notes", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ issueKey, author, body }),
+      body: JSON.stringify({ issueKey, body }),
     });
     const data = await resp.json();
     if (!resp.ok) throw new Error(data?.error || "Failed to save note.");

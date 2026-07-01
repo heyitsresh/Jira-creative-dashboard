@@ -4,8 +4,11 @@ import NotesSection from "./NotesSection";
 import { colorForKey, DUE_BUCKET_COLORS } from "../lib/colors";
 import { formatDate, getDueBucket } from "../lib/issueUtils";
 
+// "key" and "notes" are pinned to the left edge (see STICKY_COLUMNS below)
+// so they're always visible regardless of horizontal scroll position.
 const ALL_COLUMNS = [
   { key: "key", label: "Key", sortable: true },
+  { key: "notes", label: "Notes", sortable: false },
   { key: "summary", label: "Summary", sortable: true },
   { key: "status", label: "Status", sortable: true },
   { key: "assignee", label: "Assignee", sortable: true },
@@ -17,8 +20,30 @@ const ALL_COLUMNS = [
   { key: "project", label: "Project", sortable: true },
   { key: "updated", label: "Updated", sortable: true },
   { key: "linked", label: "Linked Items", sortable: false },
-  { key: "notes", label: "Notes", sortable: false },
 ];
+
+// Pixel widths used both to size the pinned columns and to compute each
+// one's `left` offset so they stack correctly.
+const STICKY_WIDTHS = { key: 100, notes: 120 };
+
+function stickyOffset(colKey) {
+  if (colKey === "key") return 0;
+  if (colKey === "notes") return STICKY_WIDTHS.key;
+  return null;
+}
+
+function stickyCellProps(colKey, { header = false } = {}) {
+  const offset = stickyOffset(colKey);
+  if (offset === null) return {};
+  const width = STICKY_WIDTHS[colKey];
+  const isEdge = colKey === "notes"; // last pinned column gets the divider shadow
+  return {
+    style: { left: offset, width, minWidth: width, maxWidth: width },
+    className: `sticky ${header ? "z-20" : "z-10"} ${header ? "bg-[#f8f9fb]" : "bg-white"} ${
+      isEdge ? "shadow-[2px_0_4px_-2px_rgba(0,0,0,0.12)]" : ""
+    }`,
+  };
+}
 
 function compareValues(a, b, key) {
   const av = a[key];
@@ -84,20 +109,24 @@ export default function IssueTable({
         <table className="w-full text-sm border-collapse min-w-[960px]">
           <thead>
             <tr className="text-left text-xs text-slate-500 border-b border-slate-200">
-              {columns.map((col) => (
-                <th
-                  key={col.key}
-                  onClick={() => col.sortable && toggleSort(col.key)}
-                  className={`px-3 py-2 font-semibold whitespace-nowrap ${
-                    col.sortable ? "cursor-pointer select-none hover:text-slate-800" : ""
-                  }`}
-                >
-                  {col.label}
-                  {sort.key === col.key && (
-                    <span className="ml-1">{sort.dir === "asc" ? "▲" : "▼"}</span>
-                  )}
-                </th>
-              ))}
+              {columns.map((col) => {
+                const sticky = stickyCellProps(col.key, { header: true });
+                return (
+                  <th
+                    key={col.key}
+                    onClick={() => col.sortable && toggleSort(col.key)}
+                    style={sticky.style}
+                    className={`px-3 py-2 font-semibold whitespace-nowrap ${
+                      col.sortable ? "cursor-pointer select-none hover:text-slate-800" : ""
+                    } ${sticky.className || ""}`}
+                  >
+                    {col.label}
+                    {sort.key === col.key && (
+                      <span className="ml-1">{sort.dir === "asc" ? "▲" : "▼"}</span>
+                    )}
+                  </th>
+                );
+              })}
             </tr>
           </thead>
           <tbody>
@@ -157,16 +186,23 @@ function FragmentRow({
   return (
     <Fragment>
       <tr className="border-b border-slate-100 last:border-0 hover:bg-slate-50">
-        {columns.map((col) => (
-          <td key={col.key} className="px-3 py-2 align-top max-w-[260px]">
-            {col.key === "linked" &&
-              renderLinkedCell({ total, done, hasLinks, isOpen, onToggle })}
-            {col.key === "notes" &&
-              renderNotesCell({ count: notes.length, isOpen, onToggle })}
-            {col.key !== "linked" && col.key !== "notes" &&
-              renderCell(col.key, issue, bucket)}
-          </td>
-        ))}
+        {columns.map((col) => {
+          const sticky = stickyCellProps(col.key);
+          return (
+            <td
+              key={col.key}
+              style={sticky.style}
+              className={`px-3 py-2 align-top max-w-[260px] ${sticky.className || ""}`}
+            >
+              {col.key === "linked" &&
+                renderLinkedCell({ total, done, hasLinks, isOpen, onToggle })}
+              {col.key === "notes" &&
+                renderNotesCell({ count: notes.length, isOpen, onToggle })}
+              {col.key !== "linked" && col.key !== "notes" &&
+                renderCell(col.key, issue, bucket)}
+            </td>
+          );
+        })}
       </tr>
       {canExpand && isOpen && (
         <tr className="bg-slate-50/70 border-b border-slate-100">

@@ -15,6 +15,7 @@ Standalone, read-only Next.js dashboard of open tasks in the **CREATE** Jira pro
 - **Overview** — charts (assignee, status, priority, brand, due date). Click any bar to jump to MASTER pre-filtered to that segment.
 - **By Assignee** — pick a person from the list (shows total open + an overdue badge per person), see their tasks, filter by task type.
 - **By Client** — pick a brand, see its status/assignee breakdown and open-task list.
+- **By Product** — grouped by ASIN, pulled out of each task's title (there's no structured "parent product" field in Jira for this). Sidebar lists every ASIN found with an open-task count and overdue badge, searchable; tasks whose title has no recognizable ASIN land under "No ASIN Detected" so nothing silently disappears. The matching pattern (`lib/asin.js`) assumes standard 10-character Amazon ASINs starting with "B0" — edit that file's regex if your titles use a different convention (a different prefix, brackets around it, etc.).
 
 A header bar above every tab shows the total open-task count, a clickable count per status, and quick-access buttons for pinned people (currently Resh, Shiela, Vannessa — edit `lib/pinnedPeople.js` to change who's pinned or fix name matching). Clicking a pinned person jumps to By Assignee with them pre-selected; clicking a status jumps to MASTER filtered to that status.
 
