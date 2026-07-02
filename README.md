@@ -46,6 +46,12 @@ Notes on MASTER are stored in Supabase, not Jira — this is the one place the a
      visitor_id text primary key,
      last_seen timestamptz not null default now()
    );
+
+   create table asin_labels (
+     asin text primary key,
+     label text not null,
+     updated_at timestamptz not null default now()
+   );
    ```
 3. In Project Settings → API, copy the **Project URL** and the **Secret key** (`sb_secret_...` — the new format replacing the old `service_role` JWT key; not the Publishable key).
 4. Set `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` as env vars (locally in `.env.local`, in Vercel under Project Settings → Environment Variables).
@@ -58,9 +64,15 @@ create table if not exists active_viewers (
   visitor_id text primary key,
   last_seen timestamptz not null default now()
 );
+
+create table if not exists asin_labels (
+  asin text primary key,
+  label text not null,
+  updated_at timestamptz not null default now()
+);
 ```
 
-Until Supabase env vars are set, the app still works fine — the Notes column just shows 0 notes and adding one returns a clear error instead of crashing; the presence indicator simply doesn't appear.
+Until Supabase env vars are set, the app still works fine — the Notes column just shows 0 notes and adding one returns a clear error instead of crashing; the presence indicator simply doesn't appear; product renames on By Product show a banner instead of saving.
 
 **How "auto-update when shared" works:** MASTER polls `/api/notes` every 20 seconds, and the presence indicator heartbeats/polls `/api/presence` every 15 seconds, for everyone viewing the dashboard — so a note one person adds, or resolves, shows up for everyone else within that window without a manual refresh. This isn't true push-realtime (that would mean exposing a Supabase key to the browser and setting up Row Level Security) — polling was the simpler, more secure trade-off. Say the word if you'd rather have instant push updates and I'll wire up Supabase Realtime instead.
 
