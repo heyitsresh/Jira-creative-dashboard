@@ -20,18 +20,25 @@ export default function ProductTab({ issues }) {
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState("");
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState(null);
 
   const loadLabels = useCallback(async () => {
     try {
       const resp = await fetch("/api/asin-labels");
       const data = await resp.json();
-      if (!resp.ok) return;
+      if (!resp.ok) {
+        // Table probably doesn't exist yet (migration not run) — treat the
+        // same as "not configured" so the warning banner shows up instead
+        // of failing silently.
+        setLabelsConfigured(false);
+        return;
+      }
       setLabelsConfigured(data.configured !== false);
       const map = {};
       for (const o of data.overrides || []) map[o.asin] = o.label;
       setLabels(map);
     } catch {
-      // Labels are a nice-to-have layered on top of the Jira data.
+      setLabelsConfigured(false);
     }
   }, []);
 
@@ -96,18 +103,21 @@ export default function ProductTab({ issues }) {
 
   function startEditing() {
     setEditValue(labels[activeProduct] || "");
+    setSaveError(null);
     setEditing(true);
   }
 
   async function saveLabel() {
     setSaving(true);
+    setSaveError(null);
     try {
       const resp = await fetch("/api/asin-labels", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ asin: activeProduct, label: editValue.trim() }),
       });
-      if (!resp.ok) throw new Error((await resp.json())?.error || "Failed to save.");
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data?.error || "Failed to save.");
       setLabels((prev) => {
         const next = { ...prev };
         if (editValue.trim()) next[activeProduct] = editValue.trim();
@@ -115,8 +125,10 @@ export default function ProductTab({ issues }) {
         return next;
       });
       setEditing(false);
-    } catch {
-      // Leave the editor open so they can retry.
+    } catch (err) {
+      // Leave the editor open so they can retry, but say why it failed —
+      // silently doing nothing looks identical to "editing is broken".
+      setSaveError(String(err?.message || err));
     } finally {
       setSaving(false);
     }
@@ -126,7 +138,9 @@ export default function ProductTab({ issues }) {
     return <p className="text-sm text-slate-400 py-10 text-center">No open tasks.</p>;
   }
 
-  const isEditable = activeProduct && activeProduct !== NO_ASIN;
+  // Every group is nameable, including "No ASIN Detected" — only the
+  // Amazon link needs a real-looking ASIN to be worth showing.
+  const isRealAsin = activeProduct && /^B0[A-Z0-9]{8}$/i.test(activeProduct);
 
   return (
     <div>
@@ -235,49 +249,54 @@ export default function ProductTab({ issues }) {
             <>
               <div className="mb-4">
                 {editing ? (
-                  <div className="flex items-center gap-2 max-w-md">
-                    <input
-                      autoFocus
-                      type="text"
-                      value={editValue}
-                      onChange={(e) => setEditValue(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") saveLabel();
-                        if (e.key === "Escape") setEditing(false);
-                      }}
-                      placeholder={activeProduct}
-                      className="text-sm font-semibold border border-slate-200 rounded-lg px-2.5 py-1 flex-1 focus:outline-none focus:ring-2 focus:ring-[#7b61ff]/30"
-                    />
-                    <button
-                      onClick={saveLabel}
-                      disabled={saving}
-                      className="h-8 w-8 rounded-lg bg-emerald-500 text-white flex items-center justify-center disabled:opacity-50 shrink-0"
-                      title="Save"
-                    >
-                      <Check size={15} />
-                    </button>
-                    <button
-                      onClick={() => setEditing(false)}
-                      className="h-8 w-8 rounded-lg bg-slate-100 text-slate-500 flex items-center justify-center shrink-0"
-                      title="Cancel"
-                    >
-                      <X size={15} />
-                    </button>
+                  <div>
+                    <div className="flex items-center gap-2 max-w-md">
+                      <input
+                        autoFocus
+                        type="text"
+                        value={editValue}
+                        onChange={(e) => setEditValue(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") saveLabel();
+                          if (e.key === "Escape") setEditing(false);
+                        }}
+                        placeholder={activeProduct}
+                        className="text-sm font-semibold border border-slate-200 rounded-lg px-2.5 py-1 flex-1 focus:outline-none focus:ring-2 focus:ring-[#7b61ff]/30"
+                      />
+                      <button
+                        onClick={saveLabel}
+                        disabled={saving}
+                        className="h-8 w-8 rounded-lg bg-emerald-500 text-white flex items-center justify-center disabled:opacity-50 shrink-0"
+                        title="Save"
+                      >
+                        <Check size={15} />
+                      </button>
+                      <button
+                        onClick={() => setEditing(false)}
+                        className="h-8 w-8 rounded-lg bg-slate-100 text-slate-500 flex items-center justify-center shrink-0"
+                        title="Cancel"
+                      >
+                        <X size={15} />
+                      </button>
+                    </div>
+                    {saveError && (
+                      <p className="text-[11px] text-red-500 mt-1">
+                        Couldn&apos;t save: {saveError}
+                      </p>
+                    )}
                   </div>
                 ) : (
                   <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-800 group">
                     <span className={`break-words max-w-[520px] ${displayName(activeProduct) === activeProduct ? "font-mono" : ""}`}>
                       {displayName(activeProduct)}
                     </span>
-                    {isEditable && (
-                      <button
-                        onClick={startEditing}
-                        title="Rename this product"
-                        className="text-slate-300 hover:text-[#7b61ff] shrink-0"
-                      >
-                        <Pencil size={14} />
-                      </button>
-                    )}
+                    <button
+                      onClick={startEditing}
+                      title="Rename this product"
+                      className="text-slate-300 hover:text-[#7b61ff] shrink-0"
+                    >
+                      <Pencil size={14} />
+                    </button>
                   </h2>
                 )}
                 {!editing && displayName(activeProduct) !== activeProduct && (
@@ -285,7 +304,7 @@ export default function ProductTab({ issues }) {
                 )}
                 <p className="text-xs text-slate-400">
                   {productIssues.length} open task{productIssues.length === 1 ? "" : "s"}
-                  {isEditable && (
+                  {isRealAsin && (
                     <>
                       {" "}
                       ·{" "}
