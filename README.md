@@ -15,7 +15,7 @@ Standalone, read-only Next.js dashboard of open tasks in the **CREATE** Jira pro
 - **Overview** — charts (assignee, status, priority, brand, due date). Click any bar to jump to MASTER pre-filtered to that segment.
 - **By Assignee** — pick a person from the list (shows total open + an overdue badge per person), see their tasks, filter by task type.
 - **By Client** — pick a brand, see its status/assignee breakdown and open-task list.
-- **By Product** — grouped by ASIN, pulled out of each task's title (there's no structured "parent product" field in Jira for this). Sidebar lists every ASIN found with an open-task count and overdue badge, searchable; tasks whose title has no recognizable ASIN land under "No ASIN Detected" so nothing silently disappears. The matching pattern (`lib/asin.js`) assumes standard 10-character Amazon ASINs starting with "B0" — edit that file's regex if your titles use a different convention (a different prefix, brackets around it, etc.). You can drag any row in the task table onto a different product in the sidebar (e.g. moving something out of "No ASIN Detected") to manually reassign it — that override is stored in Supabase (`asin_overrides`) and takes priority over the auto-detected ASIN for everyone viewing the dashboard; drop it back on its original group, or use the pencil-edit label, to change your mind. You can also create your own lists that have nothing to do with an ASIN (a "+ New list" box at the bottom of the sidebar) — they show up immediately, even empty, and you can drag tasks onto them the same way; hover a custom list to reveal a delete icon (deleting one just sends its tasks back to their auto-detected group, nothing in Jira changes).
+- **By Product** — grouped by ASIN, pulled out of each task's title (there's no structured "parent product" field in Jira for this). Sidebar lists every ASIN found with an open-task count and overdue badge, searchable; tasks whose title has no recognizable ASIN land under "No ASIN Detected" so nothing silently disappears. The matching pattern (`lib/asin.js`) assumes standard 10-character Amazon ASINs starting with "B0" — edit that file's regex if your titles use a different convention (a different prefix, brackets around it, etc.). You can drag any row in the task table onto a different product in the sidebar (e.g. moving something out of "No ASIN Detected") to manually reassign it — that override is stored in Supabase (`asin_overrides`) and takes priority over the auto-detected ASIN for everyone viewing the dashboard; drop it back on its original group, or use the pencil-edit label, to change your mind. You can also create your own lists that have nothing to do with an ASIN (the "New list name…" box at the bottom of the sidebar), optionally linking a real ASIN to one (the "Linked ASIN" box next to it, or "+ Link an ASIN" once the list exists) so any task whose title contains that ASIN joins it automatically going forward, same as a detected group — and it picks up the "view on Amazon" link too. Hover any sidebar entry (except "No ASIN Detected" itself) to reveal a delete icon: for a list you created, that deletes it and sends its tasks back to their auto-detected group; for a detected-ASIN group, since the group itself is just a byproduct of what's in the titles, it instead force-moves everything currently in it to "No ASIN Detected" (and it'll stay there — that move takes priority over auto-detection even if the title still mentions the ASIN).
 
 A header bar above every tab shows the total open-task count, a clickable count per status, and quick-access buttons for pinned people (currently Resh, Shiela, Vannessa — edit `lib/pinnedPeople.js` to change who's pinned or fix name matching). Clicking a pinned person jumps to By Assignee with them pre-selected; clicking a status jumps to MASTER filtered to that status.
 
@@ -61,6 +61,7 @@ Notes on MASTER are stored in Supabase, not Jira — this is the one place the a
 
    create table product_lists (
      name text primary key,
+     asin text,
      created_at timestamptz not null default now()
    );
    ```
@@ -92,6 +93,8 @@ create table if not exists product_lists (
   name text primary key,
   created_at timestamptz not null default now()
 );
+
+alter table product_lists add column if not exists asin text;
 ```
 
 Until Supabase env vars are set, the app still works fine — the Notes column just shows 0 notes and adding one returns a clear error instead of crashing; the presence indicator simply doesn't appear; product renames and drag-to-reassign on By Product show a banner instead of saving.

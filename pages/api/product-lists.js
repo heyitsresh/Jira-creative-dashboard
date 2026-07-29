@@ -1,13 +1,21 @@
 // Custom, manually-created product "lists" on the By Product sidebar —
 // these exist independent of any auto-detected ASIN, so a list can sit
-// there empty until you drag tasks onto it. Backed by Supabase so the
-// lists (and who's dragged what into them, via asin_overrides) are shared
-// with anyone the dashboard link is shared with.
+// there empty until you drag tasks onto it. A list can optionally be
+// linked to a real ASIN (see the `asin` column) so that any task whose
+// title contains that ASIN automatically joins the list too, same as the
+// auto-detected groups. Backed by Supabase so lists (and everything
+// dragged into them) are shared with anyone the dashboard link is shared
+// with.
 
 import { getSupabase } from "../../lib/supabaseServer";
 
 const TABLE = "product_lists";
 const OVERRIDES_TABLE = "asin_overrides";
+
+function cleanAsinInput(asin) {
+  const trimmed = (asin || "").trim().toUpperCase().slice(0, 40);
+  return trimmed || null;
+}
 
 export default async function handler(req, res) {
   const supabase = getSupabase();
@@ -23,14 +31,14 @@ export default async function handler(req, res) {
   if (req.method === "GET") {
     const { data, error } = await supabase
       .from(TABLE)
-      .select("name, created_at")
+      .select("name, asin, created_at")
       .order("created_at", { ascending: true });
     if (error) return res.status(500).json({ error: error.message });
     return res.status(200).json({ lists: data || [], configured: true });
   }
 
   if (req.method === "POST") {
-    const { name } = req.body || {};
+    const { name, asin } = req.body || {};
     const cleanName = (name || "").trim().slice(0, 80);
     if (!cleanName) return res.status(400).json({ error: "A list name is required." });
 
@@ -43,7 +51,24 @@ export default async function handler(req, res) {
 
     const { data, error } = await supabase
       .from(TABLE)
-      .insert({ name: cleanName })
+      .insert({ name: cleanName, asin: cleanAsinInput(asin) })
+      .select()
+      .single();
+    if (error) return res.status(500).json({ error: error.message });
+    return res.status(200).json({ list: data });
+  }
+
+  if (req.method === "PUT") {
+    // Update the ASIN linked to an existing list (e.g. so tasks with that
+    // ASIN auto-join it going forward). Renaming isn't supported here —
+    // use the pencil-edit label on the tab itself for that.
+    const { name, asin } = req.body || {};
+    if (!name) return res.status(400).json({ error: "name is required." });
+
+    const { data, error } = await supabase
+      .from(TABLE)
+      .update({ asin: cleanAsinInput(asin) })
+      .eq("name", name)
       .select()
       .single();
     if (error) return res.status(500).json({ error: error.message });
@@ -65,6 +90,6 @@ export default async function handler(req, res) {
     return res.status(200).json({ deleted: true });
   }
 
-  res.setHeader("Allow", "GET, POST, DELETE");
+  res.setHeader("Allow", "GET, POST, PUT, DELETE");
   return res.status(405).json({ error: "Method not allowed." });
 }

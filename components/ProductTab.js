@@ -7,6 +7,7 @@ import { BRAND_LABELS } from "../lib/clientConfig";
 
 const NO_ASIN = "No ASIN Detected";
 const POLL_MS = 20000;
+const REAL_ASIN_RE = /^B0[A-Z0-9]{8}$/i;
 
 export default function ProductTab({ issues }) {
   const [selectedBrands, setSelectedBrands] = useState([]);
@@ -29,14 +30,20 @@ export default function ProductTab({ issues }) {
   const [dragOverGroup, setDragOverGroup] = useState(null);
   const [dropError, setDropError] = useState(null);
 
-  // Manually-created lists (e.g. "Holiday Bundle") that live in the
-  // sidebar even with zero tasks in them, so you always have somewhere to
-  // drag stray "No ASIN Detected" tasks into.
-  const [customLists, setCustomLists] = useState([]);
+  // Manually-created lists (e.g. "Holiday Bundle"), each optionally linked
+  // to a real ASIN so matching tasks auto-join without dragging.
+  const [customLists, setCustomLists] = useState([]); // [{ name, asin }]
   const [listsConfigured, setListsConfigured] = useState(true);
   const [newListName, setNewListName] = useState("");
+  const [newListAsin, setNewListAsin] = useState("");
   const [creatingList, setCreatingList] = useState(false);
   const [listError, setListError] = useState(null);
+
+  // Editing the ASIN linked to whichever custom list is currently open.
+  const [editingAsin, setEditingAsin] = useState(false);
+  const [asinInputValue, setAsinInputValue] = useState("");
+  const [asinSaving, setAsinSaving] = useState(false);
+  const [asinSaveError, setAsinSaveError] = useState(null);
 
   const loadLabels = useCallback(async () => {
     try {
@@ -81,7 +88,7 @@ export default function ProductTab({ issues }) {
         return;
       }
       setListsConfigured(data.configured !== false);
-      setCustomLists((data.lists || []).map((l) => l.name));
+      setCustomLists((data.lists || []).map((l) => ({ name: l.name, asin: l.asin || null })));
     } catch {
       setListsConfigured(false);
     }
@@ -103,11 +110,26 @@ export default function ProductTab({ issues }) {
     return labels[rawAsin] || rawAsin;
   }
 
-  // Manual drag-and-drop reassignments take priority over whatever the
-  // title auto-detected.
+  // A custom list can claim a real ASIN so tasks with it auto-join —
+  // without this, only manually-dragged tasks would ever land there.
+  const customAsinMap = useMemo(() => {
+    const map = {};
+    for (const l of customLists) {
+      if (l.asin) map[l.asin.toUpperCase()] = l.name;
+    }
+    return map;
+  }, [customLists]);
+
+  // Priority: an explicit per-task drag override wins, then a custom
+  // list's linked ASIN, then whatever was auto-detected from the title.
   const effectiveIssues = useMemo(
-    () => issues.map((i) => (overrides[i.key] ? { ...i, asin: overrides[i.key] } : i)),
-    [issues, overrides]
+    () =>
+      issues.map((i) => {
+        if (overrides[i.key]) return { ...i, asin: overrides[i.key] };
+        if (i.asin && customAsinMap[i.asin]) return { ...i, asin: customAsinMap[i.asin] };
+        return i;
+      }),
+    [issues, overrides, customAsinMap]
   );
 
   const brandCounts = useMemo(() => {
@@ -129,15 +151,21 @@ export default function ProductTab({ issues }) {
     const withOverdue = groups.map((g) => ({
       ...g,
       overdue: g.issues.filter((i) => getDueBucket(i.dueDate) === "Overdue").length,
-      isCustom: customLists.includes(g.name),
+      isCustom: customLists.some((l) => l.name === g.name),
     }));
-    // Custom lists always show up, even with nothing dragged into them yet.
+    if (selectedBrands.length > 0) {
+      // A brand filter is active — a custom list should only show up if it
+      // actually has a task for that brand, same as any detected group.
+      return withOverdue;
+    }
+    // No brand filter — always show every custom list, even empty, so
+    // there's somewhere to drag a stray task regardless of brand.
     const present = new Set(withOverdue.map((g) => g.name));
     const emptyCustom = customLists
-      .filter((name) => !present.has(name))
-      .map((name) => ({ name, count: 0, issues: [], overdue: 0, isCustom: true }));
+      .filter((l) => !present.has(l.name))
+      .map((l) => ({ name: l.name, count: 0, issues: [], overdue: 0, isCustom: true }));
     return [...withOverdue, ...emptyCustom];
-  }, [brandFilteredIssues, customLists]);
+  }, [brandFilteredIssues, customLists, selectedBrands]);
 
   useEffect(() => {
     if (selected && !byProduct.some((g) => g.name === selected)) {
@@ -146,6 +174,9 @@ export default function ProductTab({ issues }) {
   }, [byProduct, selected]);
 
   const activeProduct = selected || byProduct[0]?.name || null;
+  const activeListMeta = customLists.find((l) => l.name === activeProduct) || null;
+  const isCustomActive = Boolean(activeListMeta);
+
   const productIssues = useMemo(
     () => brandFilteredIssues.filter((i) => (i.asin || NO_ASIN) === activeProduct),
     [brandFilteredIssues, activeProduct]
@@ -164,6 +195,12 @@ export default function ProductTab({ issues }) {
     setSelectedBrands((prev) =>
       prev.includes(label) ? prev.filter((b) => b !== label) : [...prev, label]
     );
+  }
+
+  function selectGroup(name) {
+    setSelected(name);
+    setEditing(false);
+    setEditingAsin(false);
   }
 
   function startEditing() {
@@ -197,37 +234,58 @@ export default function ProductTab({ issues }) {
     }
   }
 
+  function startEditingAsin() {
+    setAsinInputValue(activeListMeta?.asin || "");
+    setAsinSaveError(null);
+    setEditingAsin(true);
+  }
+
+  async function saveAsin() {
+    setAsinSaving(true);
+    setAsinSaveError(null);
+    try {
+      const resp = await fetch("/api/product-lists", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: activeProduct, asin: asinInputValue.trim() }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data?.error || "Failed to save.");
+      const savedAsin = data.list?.asin ?? (asinInputValue.trim().toUpperCase() || null);
+      setCustomLists((prev) =>
+        prev.map((l) => (l.name === activeProduct ? { ...l, asin: savedAsin } : l))
+      );
+      setEditingAsin(false);
+    } catch (err) {
+      setAsinSaveError(String(err?.message || err));
+    } finally {
+      setAsinSaving(false);
+    }
+  }
+
   async function handleDrop(targetAsin, issueKey) {
     setDragOverGroup(null);
     if (!issueKey) return;
     const currentIssue = issues.find((i) => i.key === issueKey);
     if (!currentIssue) return;
-    // Already in this group (accounting for existing overrides) — no-op.
     const currentEffective = overrides[issueKey] || currentIssue.asin || NO_ASIN;
     if (currentEffective === targetAsin) return;
 
     const prevOverride = overrides[issueKey];
-    // Optimistic update so the drag feels instant.
-    setOverrides((prev) => {
-      const next = { ...prev };
-      if (targetAsin === NO_ASIN) delete next[issueKey];
-      else next[issueKey] = targetAsin;
-      return next;
-    });
+    // Optimistic update so the drag feels instant. Always sets an explicit
+    // override (even for "No ASIN Detected") so it actually sticks rather
+    // than snapping back to whatever the title auto-detects.
+    setOverrides((prev) => ({ ...prev, [issueKey]: targetAsin }));
 
     try {
       const resp = await fetch("/api/asin-overrides", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          issueKey,
-          asin: targetAsin === NO_ASIN ? "" : targetAsin,
-        }),
+        body: JSON.stringify({ issueKey, asin: targetAsin }),
       });
       if (!resp.ok) throw new Error((await resp.json())?.error || "Failed to move task.");
       setDropError(null);
     } catch (err) {
-      // Roll back the optimistic update.
       setOverrides((prev) => {
         const next = { ...prev };
         if (prevOverride) next[issueKey] = prevOverride;
@@ -252,14 +310,17 @@ export default function ProductTab({ issues }) {
       const resp = await fetch("/api/product-lists", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name }),
+        body: JSON.stringify({ name, asin: newListAsin.trim() }),
       });
       const data = await resp.json();
       if (!resp.ok) throw new Error(data?.error || "Failed to create list.");
-      const savedName = data.list?.name || name;
-      setCustomLists((prev) => (prev.includes(savedName) ? prev : [...prev, savedName]));
+      const saved = data.list || { name, asin: newListAsin.trim().toUpperCase() || null };
+      setCustomLists((prev) =>
+        prev.some((l) => l.name === saved.name) ? prev : [...prev, saved]
+      );
       setNewListName("");
-      setSelected(savedName);
+      setNewListAsin("");
+      setSelected(saved.name);
     } catch (err) {
       setListError(String(err?.message || err));
     } finally {
@@ -267,27 +328,68 @@ export default function ProductTab({ issues }) {
     }
   }
 
-  async function deleteList(name) {
-    if (typeof window !== "undefined") {
-      const ok = window.confirm(
-        `Delete "${displayName(name)}"? Any tasks in it move back to their auto-detected group.`
-      );
-      if (!ok) return;
-    }
+  // Works for both kinds of sidebar entries: a custom list gets deleted
+  // outright; a detected-ASIN group instead has every one of its current
+  // tasks force-moved to "No ASIN Detected" (there's nothing to "delete" —
+  // the group only exists because of what's in the title — but this gives
+  // you a way to clear it out).
+  async function dissolveGroup(g) {
+    if (!g || g.name === NO_ASIN) return;
+    const label = displayName(g.name);
+    const confirmMsg = g.isCustom
+      ? `Delete "${label}"? Any tasks in it move back to their auto-detected group.`
+      : `Move all ${g.count} task${g.count === 1 ? "" : "s"} out of "${label}" into "${NO_ASIN}"? They'll stay there until you drag them elsewhere, even if their Jira title still mentions this ASIN.`;
+    if (typeof window !== "undefined" && !window.confirm(confirmMsg)) return;
     setListError(null);
+
+    if (g.isCustom) {
+      try {
+        const resp = await fetch(`/api/product-lists?name=${encodeURIComponent(g.name)}`, {
+          method: "DELETE",
+        });
+        if (!resp.ok) throw new Error((await resp.json())?.error || "Failed to delete list.");
+        setCustomLists((prev) => prev.filter((l) => l.name !== g.name));
+        setOverrides((prev) => {
+          const next = { ...prev };
+          for (const key of Object.keys(next)) if (next[key] === g.name) delete next[key];
+          return next;
+        });
+        if (selected === g.name) setSelected(null);
+      } catch (err) {
+        setListError(String(err?.message || err));
+      }
+      return;
+    }
+
+    const targets = g.issues.map((i) => i.key);
+    const prevOverrides = {};
+    for (const key of targets) prevOverrides[key] = overrides[key];
+    setOverrides((prev) => {
+      const next = { ...prev };
+      for (const key of targets) next[key] = NO_ASIN;
+      return next;
+    });
     try {
-      const resp = await fetch(`/api/product-lists?name=${encodeURIComponent(name)}`, {
-        method: "DELETE",
-      });
-      if (!resp.ok) throw new Error((await resp.json())?.error || "Failed to delete list.");
-      setCustomLists((prev) => prev.filter((n) => n !== name));
+      const results = await Promise.all(
+        targets.map((issueKey) =>
+          fetch("/api/asin-overrides", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ issueKey, asin: NO_ASIN }),
+          })
+        )
+      );
+      if (results.some((r) => !r.ok)) throw new Error("Some tasks couldn't be moved.");
+      if (selected === g.name) setSelected(null);
+    } catch (err) {
       setOverrides((prev) => {
         const next = { ...prev };
-        for (const key of Object.keys(next)) if (next[key] === name) delete next[key];
+        for (const key of targets) {
+          if (prevOverrides[key]) next[key] = prevOverrides[key];
+          else delete next[key];
+        }
         return next;
       });
-      if (selected === name) setSelected(null);
-    } catch (err) {
       setListError(String(err?.message || err));
     }
   }
@@ -296,7 +398,10 @@ export default function ProductTab({ issues }) {
     return <p className="text-sm text-slate-400 py-10 text-center">No open tasks.</p>;
   }
 
-  const isRealAsin = activeProduct && /^B0[A-Z0-9]{8}$/i.test(activeProduct);
+  // What ASIN (if any) this group should link to Amazon with: itself, if
+  // it's a real detected ASIN, or whatever ASIN a custom list has linked.
+  const linkedAsin = isCustomActive ? activeListMeta?.asin : activeProduct;
+  const isRealAsin = Boolean(linkedAsin && REAL_ASIN_RE.test(linkedAsin));
   const dragConfigured = overridesConfigured;
 
   return (
@@ -305,8 +410,10 @@ export default function ProductTab({ issues }) {
         Grouped by ASIN pulled from each task's title — tasks whose title doesn't contain a
         recognizable ASIN land under &ldquo;{NO_ASIN}&rdquo;. Edit{" "}
         <code className="bg-slate-100 px-1 py-0.5 rounded">lib/asin.js</code> if your titles use a
-        different pattern. Click the pencil next to a product's heading to rename it, or drag a
-        task from the table onto a different product in the sidebar to reassign it.
+        different pattern. Click the pencil next to a product's heading to rename it, drag a task
+        from the table onto a different product in the sidebar to reassign it, or hover a sidebar
+        entry to clear it out. You can also create your own lists and optionally link them to a
+        real ASIN, so matching tasks join automatically.
       </p>
 
       <div className="mb-4">
@@ -332,7 +439,7 @@ export default function ProductTab({ issues }) {
         <div className="card border-amber-200 bg-amber-50 text-amber-700 text-xs px-3 py-2 mb-4">
           Custom product names, custom lists, and drag-to-reassign aren&apos;t syncing yet — set
           SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY, and make sure the asin_labels,
-          asin_overrides, and product_lists tables exist.
+          asin_overrides, and product_lists (with its asin column) tables exist.
         </div>
       )}
       {dropError && (
@@ -363,20 +470,15 @@ export default function ProductTab({ issues }) {
               const label = displayName(g.name);
               const hasCustomLabel = label !== g.name;
               const isDropTarget = dragConfigured && dragOverGroup === g.name;
+              const meta = customLists.find((l) => l.name === g.name);
               return (
                 <div
                   key={g.name}
                   role="button"
                   tabIndex={0}
-                  onClick={() => {
-                    setSelected(g.name);
-                    setEditing(false);
-                  }}
+                  onClick={() => selectGroup(g.name)}
                   onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      setSelected(g.name);
-                      setEditing(false);
-                    }
+                    if (e.key === "Enter" || e.key === " ") selectGroup(g.name);
                   }}
                   onDragOver={(e) => {
                     if (!dragConfigured) return;
@@ -419,6 +521,11 @@ export default function ProductTab({ issues }) {
                           {g.name}
                         </span>
                       )}
+                      {g.isCustom && meta?.asin && (
+                        <span className="block text-[9px] text-slate-400 font-mono truncate">
+                          {meta.asin}
+                        </span>
+                      )}
                     </span>
                   </span>
                   <span className="flex items-center gap-1 shrink-0">
@@ -428,13 +535,13 @@ export default function ProductTab({ issues }) {
                       </span>
                     )}
                     <span className="text-xs text-slate-400">{g.count}</span>
-                    {g.isCustom && (
+                    {!isUnmatched && (
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          deleteList(g.name);
+                          dissolveGroup(g);
                         }}
-                        title="Delete this list"
+                        title={g.isCustom ? "Delete this list" : "Move these tasks to No ASIN Detected"}
                         className="text-slate-300 hover:text-red-500 opacity-0 group-hover/row:opacity-100 transition-opacity shrink-0"
                       >
                         <Trash2 size={12} />
@@ -446,18 +553,29 @@ export default function ProductTab({ issues }) {
             })}
           </div>
 
-          <div className="p-1.5 pt-2 border-t border-slate-100 mt-1">
+          <div className="p-1.5 pt-2 border-t border-slate-100 mt-1 space-y-1.5">
+            <input
+              type="text"
+              value={newListName}
+              onChange={(e) => setNewListName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") createList();
+              }}
+              placeholder="New list name…"
+              disabled={!listsConfigured}
+              className="w-full text-xs border border-slate-200 rounded-full px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#7b61ff]/30 disabled:opacity-50"
+            />
             <div className="flex items-center gap-1.5">
               <input
                 type="text"
-                value={newListName}
-                onChange={(e) => setNewListName(e.target.value)}
+                value={newListAsin}
+                onChange={(e) => setNewListAsin(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") createList();
                 }}
-                placeholder="New list name…"
+                placeholder="Linked ASIN (optional)"
                 disabled={!listsConfigured}
-                className="w-full text-xs border border-slate-200 rounded-full px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#7b61ff]/30 disabled:opacity-50"
+                className="w-full text-xs font-mono border border-slate-200 rounded-full px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#7b61ff]/30 disabled:opacity-50"
               />
               <button
                 onClick={createList}
@@ -537,7 +655,7 @@ export default function ProductTab({ issues }) {
                       {" "}
                       ·{" "}
                       <a
-                        href={`https://www.amazon.com/dp/${activeProduct}`}
+                        href={`https://www.amazon.com/dp/${linkedAsin}`}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="text-indigo-600 hover:underline"
@@ -550,6 +668,61 @@ export default function ProductTab({ issues }) {
                     <span className="text-slate-300"> · drag rows onto a sidebar product to move them</span>
                   )}
                 </p>
+                {isCustomActive && (
+                  <div className="mt-1.5">
+                    {editingAsin ? (
+                      <div className="flex items-center gap-2 max-w-xs">
+                        <input
+                          autoFocus
+                          type="text"
+                          value={asinInputValue}
+                          onChange={(e) => setAsinInputValue(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") saveAsin();
+                            if (e.key === "Escape") setEditingAsin(false);
+                          }}
+                          placeholder="e.g. B0D1234567"
+                          className="text-xs font-mono border border-slate-200 rounded-md px-2 py-1 flex-1 focus:outline-none focus:ring-2 focus:ring-[#7b61ff]/30"
+                        />
+                        <button
+                          onClick={saveAsin}
+                          disabled={asinSaving}
+                          className="h-6 w-6 rounded-md bg-emerald-500 text-white flex items-center justify-center disabled:opacity-50 shrink-0"
+                          title="Save"
+                        >
+                          <Check size={12} />
+                        </button>
+                        <button
+                          onClick={() => setEditingAsin(false)}
+                          className="h-6 w-6 rounded-md bg-slate-100 text-slate-500 flex items-center justify-center shrink-0"
+                          title="Cancel"
+                        >
+                          <X size={12} />
+                        </button>
+                      </div>
+                    ) : activeListMeta?.asin ? (
+                      <p className="text-[11px]">
+                        <span className="text-slate-400">Linked ASIN: </span>
+                        <span className="font-mono text-slate-600">{activeListMeta.asin}</span>{" "}
+                        <button onClick={startEditingAsin} className="text-indigo-600 hover:underline">
+                          edit
+                        </button>
+                      </p>
+                    ) : (
+                      <button
+                        onClick={startEditingAsin}
+                        className="text-[11px] text-indigo-600 hover:underline"
+                      >
+                        + Link an ASIN — tasks with it will auto-join this list
+                      </button>
+                    )}
+                    {asinSaveError && (
+                      <p className="text-[11px] text-red-500 mt-1">
+                        Couldn&apos;t save: {asinSaveError}
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
               <IssueTable issues={productIssues} draggable={dragConfigured} />
             </>
