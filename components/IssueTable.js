@@ -225,7 +225,7 @@ function FragmentRow({
               {col.key === "notes" &&
                 renderNotesCell({ total: noteTotal, resolved: noteResolved, isOpen, onToggle })}
               {col.key !== "linked" && col.key !== "notes" &&
-                renderCell(col.key, issue, bucket)}
+                renderCell(col.key, issue, bucket, draggable)}
             </td>
           );
         })}
@@ -329,7 +329,7 @@ function renderNotesCell({ total, resolved, isOpen, onToggle }) {
   );
 }
 
-function renderCell(key, issue, bucket) {
+function renderCell(key, issue, bucket, rowDraggable = false) {
   switch (key) {
     case "key":
       return (
@@ -337,6 +337,12 @@ function renderCell(key, issue, bucket) {
           href={issue.url}
           target="_blank"
           rel="noopener noreferrer"
+          // Links are natively draggable in every browser, which hijacks
+          // the drag gesture before it can bubble up to the row — you'd
+          // end up dragging a URL instead of moving the task. Disable that
+          // so grabbing the row (including on top of the key) always
+          // triggers the row's own dragstart instead.
+          draggable={rowDraggable ? false : undefined}
           className="text-indigo-600 hover:text-indigo-800 font-medium hover:underline whitespace-nowrap"
         >
           {issue.key}
