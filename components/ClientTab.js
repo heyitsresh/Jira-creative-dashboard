@@ -5,6 +5,7 @@ import GroupedBarChart from "./GroupedBarChart";
 import StatCard from "./StatCard";
 import { getDueBucket, groupBy } from "../lib/issueUtils";
 import { colorForKey, GRADIENTS } from "../lib/colors";
+import { toSentenceCase } from "../lib/textCase";
 
 export default function ClientTab({ issues }) {
   const byClient = useMemo(() => groupBy(issues, (i) => i.client), [issues]);
@@ -78,6 +79,7 @@ export default function ClientTab({ issues }) {
           title="By Status"
           data={byStatus}
           colorFn={colorForKey}
+          labelFormatter={toSentenceCase}
         />
         <GroupedBarChart
           title="By Assignee"

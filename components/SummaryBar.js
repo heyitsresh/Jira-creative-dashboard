@@ -3,6 +3,7 @@ import { getDueBucket, groupBy, uniqueSorted } from "../lib/issueUtils";
 import { resolvePinnedPeople } from "../lib/pinnedPeople";
 import { colorForKey } from "../lib/colors";
 import useCountUp from "../lib/useCountUp";
+import { toSentenceCase } from "../lib/textCase";
 
 export default function SummaryBar({ issues, onStatusClick, onPersonClick }) {
   const byStatus = useMemo(() => groupBy(issues, (i) => i.status), [issues]);
@@ -44,7 +45,7 @@ export default function SummaryBar({ issues, onStatusClick, onPersonClick }) {
               className="h-1.5 w-1.5 rounded-full shrink-0"
               style={{ backgroundColor: colorForKey(s.name) }}
             />
-            {s.name}
+            {toSentenceCase(s.name)}
             <span className="opacity-60">{s.count}</span>
           </button>
         ))}

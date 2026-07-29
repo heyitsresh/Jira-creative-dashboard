@@ -5,6 +5,7 @@ import FilterSelect from "./FilterSelect";
 import BrandHeader from "./BrandHeader";
 import { applyFilters, groupBy, uniqueSorted } from "../lib/issueUtils";
 import { BRAND_LABELS } from "../lib/clientConfig";
+import { toSentenceCase } from "../lib/textCase";
 
 const NOTES_POLL_MS = 20000;
 
@@ -139,6 +140,7 @@ export default function AllTasksTab({
           value={filters.status}
           options={statuses}
           onChange={(v) => onFilterChange("status", v)}
+          formatLabel={toSentenceCase}
         />
         <FilterSelect
           label="Priority"

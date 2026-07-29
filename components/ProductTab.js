@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Search, Pencil, Check, X } from "lucide-react";
+import { Search, Pencil, Check, X, Plus, Trash2 } from "lucide-react";
 import IssueTable from "./IssueTable";
 import { getDueBucket, groupBy } from "../lib/issueUtils";
 import { colorForKey } from "../lib/colors";
 import { BRAND_LABELS } from "../lib/clientConfig";
 
 const NO_ASIN = "No ASIN Detected";
-const LABELS_POLL_MS = 20000;
+const POLL_MS = 20000;
 
 export default function ProductTab({ issues }) {
   const [selectedBrands, setSelectedBrands] = useState([]);
@@ -22,14 +22,27 @@ export default function ProductTab({ issues }) {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState(null);
 
+  // Manual per-task reassignment (drag a task onto a different product),
+  // also shared via Supabase.
+  const [overrides, setOverrides] = useState({});
+  const [overridesConfigured, setOverridesConfigured] = useState(true);
+  const [dragOverGroup, setDragOverGroup] = useState(null);
+  const [dropError, setDropError] = useState(null);
+
+  // Manually-created lists (e.g. "Holiday Bundle") that live in the
+  // sidebar even with zero tasks in them, so you always have somewhere to
+  // drag stray "No ASIN Detected" tasks into.
+  const [customLists, setCustomLists] = useState([]);
+  const [listsConfigured, setListsConfigured] = useState(true);
+  const [newListName, setNewListName] = useState("");
+  const [creatingList, setCreatingList] = useState(false);
+  const [listError, setListError] = useState(null);
+
   const loadLabels = useCallback(async () => {
     try {
       const resp = await fetch("/api/asin-labels");
       const data = await resp.json();
       if (!resp.ok) {
-        // Table probably doesn't exist yet (migration not run) — treat the
-        // same as "not configured" so the warning banner shows up instead
-        // of failing silently.
         setLabelsConfigured(false);
         return;
       }
@@ -42,37 +55,89 @@ export default function ProductTab({ issues }) {
     }
   }, []);
 
+  const loadOverrides = useCallback(async () => {
+    try {
+      const resp = await fetch("/api/asin-overrides");
+      const data = await resp.json();
+      if (!resp.ok) {
+        setOverridesConfigured(false);
+        return;
+      }
+      setOverridesConfigured(data.configured !== false);
+      const map = {};
+      for (const o of data.overrides || []) map[o.issue_key] = o.asin;
+      setOverrides(map);
+    } catch {
+      setOverridesConfigured(false);
+    }
+  }, []);
+
+  const loadCustomLists = useCallback(async () => {
+    try {
+      const resp = await fetch("/api/product-lists");
+      const data = await resp.json();
+      if (!resp.ok) {
+        setListsConfigured(false);
+        return;
+      }
+      setListsConfigured(data.configured !== false);
+      setCustomLists((data.lists || []).map((l) => l.name));
+    } catch {
+      setListsConfigured(false);
+    }
+  }, []);
+
   useEffect(() => {
     loadLabels();
-    const id = setInterval(loadLabels, LABELS_POLL_MS);
+    loadOverrides();
+    loadCustomLists();
+    const id = setInterval(() => {
+      loadLabels();
+      loadOverrides();
+      loadCustomLists();
+    }, POLL_MS);
     return () => clearInterval(id);
-  }, [loadLabels]);
+  }, [loadLabels, loadOverrides, loadCustomLists]);
 
   function displayName(rawAsin) {
     return labels[rawAsin] || rawAsin;
   }
 
+  // Manual drag-and-drop reassignments take priority over whatever the
+  // title auto-detected.
+  const effectiveIssues = useMemo(
+    () => issues.map((i) => (overrides[i.key] ? { ...i, asin: overrides[i.key] } : i)),
+    [issues, overrides]
+  );
+
   const brandCounts = useMemo(() => {
-    const byBrand = groupBy(issues, (i) => i.client);
+    const byBrand = groupBy(effectiveIssues, (i) => i.client);
     const map = new Map(byBrand.map((b) => [b.name, b.count]));
     return BRAND_LABELS.map((label) => ({ label, count: map.get(label) || 0 }));
-  }, [issues]);
+  }, [effectiveIssues]);
 
   const brandFilteredIssues = useMemo(
     () =>
       selectedBrands.length
-        ? issues.filter((i) => selectedBrands.includes(i.client))
-        : issues,
-    [issues, selectedBrands]
+        ? effectiveIssues.filter((i) => selectedBrands.includes(i.client))
+        : effectiveIssues,
+    [effectiveIssues, selectedBrands]
   );
 
   const byProduct = useMemo(() => {
     const groups = groupBy(brandFilteredIssues, (i) => i.asin || NO_ASIN);
-    return groups.map((g) => ({
+    const withOverdue = groups.map((g) => ({
       ...g,
       overdue: g.issues.filter((i) => getDueBucket(i.dueDate) === "Overdue").length,
+      isCustom: customLists.includes(g.name),
     }));
-  }, [brandFilteredIssues]);
+    // Custom lists always show up, even with nothing dragged into them yet.
+    const present = new Set(withOverdue.map((g) => g.name));
+    const emptyCustom = customLists
+      .filter((name) => !present.has(name))
+      .map((name) => ({ name, count: 0, issues: [], overdue: 0, isCustom: true }));
+    return [...withOverdue, ...emptyCustom];
+  }, [brandFilteredIssues, customLists]);
 
   useEffect(() => {
     if (selected && !byProduct.some((g) => g.name === selected)) {
@@ -126,11 +191,104 @@ export default function ProductTab({ issues }) {
       });
       setEditing(false);
     } catch (err) {
-      // Leave the editor open so they can retry, but say why it failed —
-      // silently doing nothing looks identical to "editing is broken".
       setSaveError(String(err?.message || err));
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleDrop(targetAsin, issueKey) {
+    setDragOverGroup(null);
+    if (!issueKey) return;
+    const currentIssue = issues.find((i) => i.key === issueKey);
+    if (!currentIssue) return;
+    // Already in this group (accounting for existing overrides) — no-op.
+    const currentEffective = overrides[issueKey] || currentIssue.asin || NO_ASIN;
+    if (currentEffective === targetAsin) return;
+
+    const prevOverride = overrides[issueKey];
+    // Optimistic update so the drag feels instant.
+    setOverrides((prev) => {
+      const next = { ...prev };
+      if (targetAsin === NO_ASIN) delete next[issueKey];
+      else next[issueKey] = targetAsin;
+      return next;
+    });
+
+    try {
+      const resp = await fetch("/api/asin-overrides", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          issueKey,
+          asin: targetAsin === NO_ASIN ? "" : targetAsin,
+        }),
+      });
+      if (!resp.ok) throw new Error((await resp.json())?.error || "Failed to move task.");
+      setDropError(null);
+    } catch (err) {
+      // Roll back the optimistic update.
+      setOverrides((prev) => {
+        const next = { ...prev };
+        if (prevOverride) next[issueKey] = prevOverride;
+        else delete next[issueKey];
+        return next;
+      });
+      setDropError(String(err?.message || err));
+    }
+  }
+
+  async function createList() {
+    const name = newListName.trim();
+    if (!name) return;
+    const dupe = byProduct.some((g) => g.name.toLowerCase() === name.toLowerCase());
+    if (dupe) {
+      setListError("A list with that name already exists.");
+      return;
+    }
+    setCreatingList(true);
+    setListError(null);
+    try {
+      const resp = await fetch("/api/product-lists", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data?.error || "Failed to create list.");
+      const savedName = data.list?.name || name;
+      setCustomLists((prev) => (prev.includes(savedName) ? prev : [...prev, savedName]));
+      setNewListName("");
+      setSelected(savedName);
+    } catch (err) {
+      setListError(String(err?.message || err));
+    } finally {
+      setCreatingList(false);
+    }
+  }
+
+  async function deleteList(name) {
+    if (typeof window !== "undefined") {
+      const ok = window.confirm(
+        `Delete "${displayName(name)}"? Any tasks in it move back to their auto-detected group.`
+      );
+      if (!ok) return;
+    }
+    setListError(null);
+    try {
+      const resp = await fetch(`/api/product-lists?name=${encodeURIComponent(name)}`, {
+        method: "DELETE",
+      });
+      if (!resp.ok) throw new Error((await resp.json())?.error || "Failed to delete list.");
+      setCustomLists((prev) => prev.filter((n) => n !== name));
+      setOverrides((prev) => {
+        const next = { ...prev };
+        for (const key of Object.keys(next)) if (next[key] === name) delete next[key];
+        return next;
+      });
+      if (selected === name) setSelected(null);
+    } catch (err) {
+      setListError(String(err?.message || err));
     }
   }
 
@@ -138,9 +296,8 @@ export default function ProductTab({ issues }) {
     return <p className="text-sm text-slate-400 py-10 text-center">No open tasks.</p>;
   }
 
-  // Every group is nameable, including "No ASIN Detected" — only the
-  // Amazon link needs a real-looking ASIN to be worth showing.
   const isRealAsin = activeProduct && /^B0[A-Z0-9]{8}$/i.test(activeProduct);
+  const dragConfigured = overridesConfigured;
 
   return (
     <div>
@@ -148,8 +305,8 @@ export default function ProductTab({ issues }) {
         Grouped by ASIN pulled from each task's title — tasks whose title doesn't contain a
         recognizable ASIN land under &ldquo;{NO_ASIN}&rdquo;. Edit{" "}
         <code className="bg-slate-100 px-1 py-0.5 rounded">lib/asin.js</code> if your titles use a
-        different pattern. Click the pencil next to a product's heading to give it a friendlier
-        name — grouping still keys off the real ASIN underneath, so nothing breaks.
+        different pattern. Click the pencil next to a product's heading to rename it, or drag a
+        task from the table onto a different product in the sidebar to reassign it.
       </p>
 
       <div className="mb-4">
@@ -171,10 +328,16 @@ export default function ProductTab({ issues }) {
         </div>
       </div>
 
-      {!labelsConfigured && (
+      {(!labelsConfigured || !overridesConfigured || !listsConfigured) && (
         <div className="card border-amber-200 bg-amber-50 text-amber-700 text-xs px-3 py-2 mb-4">
-          Custom product names aren&apos;t syncing yet — set SUPABASE_URL and
-          SUPABASE_SERVICE_ROLE_KEY to enable them.
+          Custom product names, custom lists, and drag-to-reassign aren&apos;t syncing yet — set
+          SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY, and make sure the asin_labels,
+          asin_overrides, and product_lists tables exist.
+        </div>
+      )}
+      {dropError && (
+        <div className="card border-red-200 bg-red-50 text-red-700 text-xs px-3 py-2 mb-4">
+          Couldn&apos;t move that task: {dropError}
         </div>
       )}
 
@@ -199,15 +362,43 @@ export default function ProductTab({ issues }) {
               const isUnmatched = g.name === NO_ASIN;
               const label = displayName(g.name);
               const hasCustomLabel = label !== g.name;
+              const isDropTarget = dragConfigured && dragOverGroup === g.name;
               return (
-                <button
+                <div
                   key={g.name}
+                  role="button"
+                  tabIndex={0}
                   onClick={() => {
                     setSelected(g.name);
                     setEditing(false);
                   }}
-                  className={`w-full flex items-center justify-between gap-2 px-2.5 py-2 rounded-md text-xs text-left transition-colors ${
-                    isActive ? "bg-violet-50 text-violet-700" : "hover:bg-slate-50 text-slate-700"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      setSelected(g.name);
+                      setEditing(false);
+                    }
+                  }}
+                  onDragOver={(e) => {
+                    if (!dragConfigured) return;
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = "move";
+                  }}
+                  onDragEnter={() => dragConfigured && setDragOverGroup(g.name)}
+                  onDragLeave={() =>
+                    setDragOverGroup((prev) => (prev === g.name ? null : prev))
+                  }
+                  onDrop={(e) => {
+                    if (!dragConfigured) return;
+                    e.preventDefault();
+                    const issueKey = e.dataTransfer.getData("text/plain");
+                    handleDrop(g.name, issueKey);
+                  }}
+                  className={`group/row w-full flex items-center justify-between gap-2 px-2.5 py-2 rounded-md text-xs text-left transition-colors cursor-pointer ${
+                    isDropTarget
+                      ? "bg-[#7b61ff]/10 ring-2 ring-[#7b61ff]/40"
+                      : isActive
+                      ? "bg-violet-50 text-violet-700"
+                      : "hover:bg-slate-50 text-slate-700"
                   }`}
                 >
                   <span className="flex items-center gap-2 min-w-0">
@@ -237,10 +428,47 @@ export default function ProductTab({ issues }) {
                       </span>
                     )}
                     <span className="text-xs text-slate-400">{g.count}</span>
+                    {g.isCustom && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          deleteList(g.name);
+                        }}
+                        title="Delete this list"
+                        className="text-slate-300 hover:text-red-500 opacity-0 group-hover/row:opacity-100 transition-opacity shrink-0"
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    )}
                   </span>
-                </button>
+                </div>
               );
             })}
+          </div>
+
+          <div className="p-1.5 pt-2 border-t border-slate-100 mt-1">
+            <div className="flex items-center gap-1.5">
+              <input
+                type="text"
+                value={newListName}
+                onChange={(e) => setNewListName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") createList();
+                }}
+                placeholder="New list name…"
+                disabled={!listsConfigured}
+                className="w-full text-xs border border-slate-200 rounded-full px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#7b61ff]/30 disabled:opacity-50"
+              />
+              <button
+                onClick={createList}
+                disabled={!listsConfigured || creatingList || !newListName.trim()}
+                title="Create list"
+                className="h-7 w-7 rounded-full bg-[#7b61ff] text-white flex items-center justify-center disabled:opacity-40 shrink-0"
+              >
+                <Plus size={14} />
+              </button>
+            </div>
+            {listError && <p className="text-[11px] text-red-500 mt-1 px-1">{listError}</p>}
           </div>
         </div>
 
@@ -318,9 +546,12 @@ export default function ProductTab({ issues }) {
                       </a>
                     </>
                   )}
+                  {dragConfigured && (
+                    <span className="text-slate-300"> · drag rows onto a sidebar product to move them</span>
+                  )}
                 </p>
               </div>
-              <IssueTable issues={productIssues} />
+              <IssueTable issues={productIssues} draggable={dragConfigured} />
             </>
           ) : (
             <p className="text-sm text-slate-400 py-10 text-center">

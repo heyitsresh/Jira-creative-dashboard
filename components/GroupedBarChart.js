@@ -20,6 +20,7 @@ export default function GroupedBarChart({
   colorFn,
   onSegmentClick,
   emptyMessage = "No data",
+  labelFormatter = (v) => v,
 }) {
   const height = Math.max(180, Math.min(420, data.length * 34 + 40));
 
@@ -50,11 +51,12 @@ export default function GroupedBarChart({
                 dataKey="name"
                 width={110}
                 tick={{ fontSize: 11 }}
-                tickFormatter={(v) => truncate(v, 16)}
+                tickFormatter={(v) => truncate(labelFormatter(v), 16)}
               />
               <Tooltip
                 cursor={{ fill: "rgba(15,23,42,0.04)" }}
                 formatter={(value) => [value, "Open tasks"]}
+                labelFormatter={(v) => labelFormatter(v)}
               />
               <Bar
                 dataKey="count"

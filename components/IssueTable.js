@@ -1,4 +1,5 @@
 import { Fragment, useMemo, useState } from "react";
+import { GripVertical } from "lucide-react";
 import StatusBadge from "./StatusBadge";
 import NotesSection from "./NotesSection";
 import { colorForKey, DUE_BUCKET_COLORS } from "../lib/colors";
@@ -67,6 +68,8 @@ export default function IssueTable({
   notesByKey = null, // { [issueKey]: Note[] } — pass to enable the Notes column
   onAddNote = null, // (issueKey, { body }) => Promise
   onToggleResolve = null, // (noteId, resolved) => Promise
+  draggable = false, // enables dragging rows out (e.g. onto a sidebar drop target)
+  onRowDragStart = null, // (issueKey) => void
 }) {
   const [sort, setSort] = useState(defaultSort);
   const [expanded, setExpanded] = useState(new Set());
@@ -160,6 +163,8 @@ export default function IssueTable({
                   onToggleResolve={onToggleResolve}
                   isOpen={isOpen}
                   onToggle={() => canExpand && toggleExpanded(issue.key)}
+                  draggable={draggable}
+                  onRowDragStart={onRowDragStart}
                 />
               );
             })}
@@ -181,6 +186,8 @@ function FragmentRow({
   onToggleResolve,
   isOpen,
   onToggle,
+  draggable,
+  onRowDragStart,
 }) {
   const total = issue.linkedItems?.length || 0;
   const done = issue.linkedItems?.filter((l) => l.statusCategory === "Done").length || 0;
@@ -190,7 +197,18 @@ function FragmentRow({
 
   return (
     <Fragment>
-      <tr className="border-b border-slate-100 last:border-0 hover:bg-slate-50 transition-colors">
+      <tr
+        draggable={draggable}
+        onDragStart={(e) => {
+          if (!draggable) return;
+          e.dataTransfer.setData("text/plain", issue.key);
+          e.dataTransfer.effectAllowed = "move";
+          onRowDragStart?.(issue.key);
+        }}
+        className={`border-b border-slate-100 last:border-0 hover:bg-slate-50 transition-colors ${
+          draggable ? "cursor-grab active:cursor-grabbing" : ""
+        }`}
+      >
         {columns.map((col) => {
           const sticky = stickyCellProps(col.key);
           return (
@@ -199,6 +217,9 @@ function FragmentRow({
               style={sticky.style}
               className={`px-3 py-2 align-top max-w-[260px] ${sticky.className || ""}`}
             >
+              {col.key === "key" && draggable && (
+                <GripVertical size={12} className="inline text-slate-300 mr-1 -ml-0.5 align-text-bottom" />
+              )}
               {col.key === "linked" &&
                 renderLinkedCell({ total, done, hasLinks, isOpen, onToggle })}
               {col.key === "notes" &&

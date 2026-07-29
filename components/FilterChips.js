@@ -1,4 +1,5 @@
 import { activeFilterEntries, fieldLabel } from "../lib/issueUtils";
+import { toSentenceCase } from "../lib/textCase";
 
 export default function FilterChips({ filters, onClear, onClearAll }) {
   const entries = activeFilterEntries(filters);
@@ -10,7 +11,7 @@ export default function FilterChips({ filters, onClear, onClearAll }) {
       {entries.map(({ field, value }) => (
         <span key={`${field}-${value}`} className="chip">
           <span className="truncate max-w-[180px]">
-            {fieldLabel(field)}: {value}
+            {fieldLabel(field)}: {field === "status" ? toSentenceCase(value) : value}
           </span>
           <button
             onClick={() => onClear(field, value)}

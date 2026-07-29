@@ -4,6 +4,7 @@ import GroupedBarChart from "./GroupedBarChart";
 import StatCard from "./StatCard";
 import { colorForKey, DUE_BUCKET_COLORS, GRADIENTS } from "../lib/colors";
 import { DUE_BUCKET_ORDER, getDueBucket, groupBy } from "../lib/issueUtils";
+import { toSentenceCase } from "../lib/textCase";
 
 export default function OverviewTab({ issues, onDrill }) {
   const byAssignee = useMemo(
@@ -73,6 +74,7 @@ export default function OverviewTab({ issues, onDrill }) {
           data={byStatus}
           colorFn={colorForKey}
           onSegmentClick={(name) => onDrill("status", name)}
+          labelFormatter={toSentenceCase}
         />
         <GroupedBarChart
           title="By Priority"
